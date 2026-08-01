@@ -1,11 +1,12 @@
 # Hourly execution cursor
 
-Current phase: `L-02` active, foundation slice `L-02a` complete. `L-01` is done: independently approved staged
-tree `c9903e1e0987273d697120a4d16b288400134248` (binary diff SHA-256
+Current phase: `L-02` active, foundation slice `L-02a` complete, and `L-02b`
+provider execution blocked. `L-01` is done: independently approved staged tree
+`c9903e1e0987273d697120a4d16b288400134248` (binary diff SHA-256
 `c27bf322d8fe2a946d3c84e106ac1e233f049e848170b7ce93e1c367882c59fe`) was
 committed and pushed as `a1862dcf80168cc58900c1f07892f3aa103d0cf3`. The next
-deterministic action is the smallest `L-02` data-flow inventory and versioned
-Supabase schema/RLS-plan slice.
+deterministic action is one bounded retry of `L-02b` after the recorded backoff,
+only when a local or authorized disposable Supabase database is available.
 
 Last reconciled runs: the bootstrap final staged-tree reference
 `a116dca406a632280e51ba01ba65383872c4f50a` and approved diff SHA-256
@@ -20,17 +21,23 @@ independently approved by `review_ummi_activation`, committed/pushed as
 production-artifact identity/free-only purge with named verifier evidence. Its
 reviewed product result was reconciled in the separate
 `manual-l01-close-20260801T204800Z` ops-only closure; selection now advances
-to `L-02`, not deployment.
+to `L-02`, not deployment. The `L-02a` final staged tree
+`00b73c6f7074a0f385c64e99dcf4ee58079a065d` and binary diff SHA-256
+`0e6cb2721d78d8a080b06efebd9238860a97896107617b69a8586e0d58549d4c`
+reconcile exactly to pushed `main` commit `cc15da3c2738783166dd3bde1e9b6a8486bd1ef5`.
 
 At the start of each run, reconcile this cursor against `ops/BACKLOG.md` and the repository. The source of truth is the backlog plus run-log evidence; update this file to the selected task/subtask, commit hash when applicable, blocking prerequisite, and next deterministic action before the run ends.
 
-This cycle's selected slice `L-02a` inventories the device-local data flow and
-adds the reviewed versioned foundation migration, exhaustive object/RLS
-matrix, provider pgTAP scenario contract, and credential-free local contract
-test. Next deterministic action is `L-02b`: run the migration and behavioral
-RLS matrix against a disposable pinned-target-compatible Supabase environment
-when L-09 credentials/configuration gates permit it, then reconcile any
-findings before L-03 auth work.
+This cycle's selected slice `L-02b` is a bounded provider-prerequisite audit.
+The Supabase CLI is installed, but `npm run test:rls` cannot connect to local
+Postgres at `127.0.0.1:54322` because the Docker daemon is unavailable. No live
+target write is authorized before `L-09`. Blocker fingerprint
+`L-02:provider-test:local-db-unavailable` was last seen at
+`2026-08-01T23:10:01Z`, attempt 2, with next retry at
+`2026-08-02T00:10:01Z`. No user notification is repeated for this unchanged
+fingerprint. The next safe action is the bounded retry after that time; when a
+disposable pinned-target-compatible Supabase environment is available, run the
+migration and behavioral RLS matrix and reconcile findings before L-03 auth.
 
 Selection algorithm:
 
