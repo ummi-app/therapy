@@ -85,3 +85,19 @@ Commit intent: `feat: rename product to Ummi and remove monetization surfaces` o
 Independent deploy review: none; no deploy
 Deploy: none; L-10 must repeat the verifier against the deployed production artifact
 Status/next: L-01 remains active until this exact final tree receives independent approval and is committed/pushed. After that, create a separately reviewed ops-only L-01 result reconciliation/closure; only then mark it done and select L-02.
+
+## 2026-08-01T20:51:53Z — manual-l01-close-20260801T204800Z — L-01 result reconciliation/closure
+
+Lock: owned by root-managed manual run `manual-l01-close-20260801T204800Z`; not acquired or released by this reconciler; task cwd `/Users/rohan/repos/therapy-coverage-ledger`
+Prior result: approved final staged tree `c9903e1e0987273d697120a4d16b288400134248` and binary staged-diff SHA-256 `c27bf322d8fe2a946d3c84e106ac1e233f049e848170b7ce93e1c367882c59fe` reconcile exactly to independently approved, pushed `main` commit `a1862dcf80168cc58900c1f07892f3aa103d0cf3` (`feat: rename product to Ummi and remove monetization surfaces`); `HEAD` and `origin/main` both resolve to that commit
+Selection: `ops/CURSOR.md` required the separately reviewed ops-only closure after the L-01 product commit/push; with L-01 acceptance now evidenced, cursor rule 2 selects L-02
+Work: updated only `ops/BACKLOG.md`, `ops/CURSOR.md`, and this run log to mark L-01 done and L-02 active; preserved the concurrent unauthorized Luna/high policy patch as untouched `stash@{0}` (`ce2c9453213cd09b53aaaf02c542fa79d9aa5799`) for later authorized reconciliation; scheduler remains externally restored to `ACTIVE` with GPT-5.6 Terra medium
+Blocker: none
+Implementer review: exact three-file ops-only closure allowlist inspected before staging; no product files or stash entries modified
+Independent commit review: pending separate reviewer approval of this exact ops-only final staged tree; product commit approval was reviewer `review_l01_ummi_purge_v4`
+Validation: product commit evidence verified: `npm run lint` passed; `npm test` passed (production build plus 21 tests); source verifier passed for 34 files; artifact verifier passed for 43 files; staged/full-worktree/reachable-history secret scans, public-repository check, scheduler-state check, and lock check passed. `npx tsc --noEmit` fails only on pre-existing missing Cloudflare ambient module/`Fetcher`/`D1Database` declarations; this remains tracked under L-08. This closure does not authorize or claim deployment.
+Secret/public scan: prior product evidence confirms clean staged/full-worktree/reachable-history scans and pinned public remote; this ops-only closure adds no secrets or personal data
+Commit intent: `chore: close L-01 purge and select L-02` on `main`; capture this exact final staged-tree reference and independent approval externally before commit
+Independent deploy review: none; no deploy
+Deploy: none
+Status/next: L-01 done; L-02 active; terminal marker remains `not-complete`. Next deterministic action is the smallest L-02 data-flow inventory and versioned Supabase schema/RLS-plan slice.

@@ -1,9 +1,11 @@
 # Hourly execution cursor
 
-Current phase: `L-01` active and awaiting independent commit review. After its
-reviewed commit/push, the next deterministic action is an ops-only `L-01`
-result reconciliation/closure; only that separate reviewed closure may mark
-`L-01` done and select `L-02` data-flow inventory.
+Current phase: `L-02` active. `L-01` is done: independently approved staged
+tree `c9903e1e0987273d697120a4d16b288400134248` (binary diff SHA-256
+`c27bf322d8fe2a946d3c84e106ac1e233f049e848170b7ce93e1c367882c59fe`) was
+committed and pushed as `a1862dcf80168cc58900c1f07892f3aa103d0cf3`. The next
+deterministic action is the smallest `L-02` data-flow inventory and versioned
+Supabase schema/RLS-plan slice.
 
 Last reconciled runs: the bootstrap final staged-tree reference
 `a116dca406a632280e51ba01ba65383872c4f50a` and approved diff SHA-256
@@ -16,8 +18,9 @@ independently approved by `review_ummi_activation`, committed/pushed as
 `db9aa4ec0b74227f609d104f2f70cf77aa5aea46`, and then externally verified
 `ACTIVE`. `manual-l01-20260801T193600Z` completed the repository and local
 production-artifact identity/free-only purge with named verifier evidence. Its
-deterministic next action after this reviewed commit/push is the bounded L-01
-result reconciliation/closure, not L-02 directly.
+reviewed product result was reconciled in the separate
+`manual-l01-close-20260801T204800Z` ops-only closure; selection now advances
+to `L-02`, not deployment.
 
 At the start of each run, reconcile this cursor against `ops/BACKLOG.md` and the repository. The source of truth is the backlog plus run-log evidence; update this file to the selected task/subtask, commit hash when applicable, blocking prerequisite, and next deterministic action before the run ends.
 
