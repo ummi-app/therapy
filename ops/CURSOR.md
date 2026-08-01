@@ -1,13 +1,17 @@
 # Hourly execution cursor
 
-Current phase: operations scaffold reconciliation complete; `L-01` (not started)
+Current phase: operations scaffold committed and pushed; activation-state
+reconciliation staged; `L-01` (not started)
 
-Last reconciled run: `ummi-hourly-product-builder-20260801T190500Z`. The
-bootstrap scaffold described in the prior run log was present only as an
-uncommitted worktree change; `main` and `origin/main` both remained at
-`06d833126dc208d6c04d693767fd0cef08f3b272`. Commit and push the reviewed
-scaffold before activating the hourly automation, then select the smallest
-`L-01` purge slice.
+Last reconciled run: `bootstrap-automation`. Its externally captured final
+staged-tree reference `a116dca406a632280e51ba01ba65383872c4f50a` and approved
+diff SHA-256 `9d4d1f139659e1daa1c556a039998bfb4981f4229574e16cc67a8d5fe1dae24b`
+map to reviewed, pushed `main` commit
+`d2e0574c38b30516c53aa2034c1d50c761cebd31`. The tracked contract is now
+`ACTIVE`, but the external `ummi-hourly-product-builder` remains `PAUSED`
+until this activation-state diff is independently approved, committed, and
+pushed. Its deterministic next action is the smallest `L-01` identity and
+free-only residue purge slice.
 
 At the start of each run, reconcile this cursor against `ops/BACKLOG.md` and the repository. The source of truth is the backlog plus run-log evidence; update this file to the selected task/subtask, commit hash when applicable, blocking prerequisite, and next deterministic action before the run ends.
 

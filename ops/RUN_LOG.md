@@ -52,3 +52,19 @@ Commit intent: `chore: add autonomous Ummi delivery pipeline` on `main`; final s
 Independent deploy review: none; no deploy
 Deploy: none
 Status/next: commit and push this reviewed recovery slice; keep automation paused, then select the smallest `L-01` slice
+
+## 2026-08-01T19:31:41Z — bootstrap-automation reconciliation — activation-state record
+
+Lock: no hourly lock acquired; bounded tracked-state reconciliation only; external hourly automation remains paused
+Prior result: external final staged-tree reference `a116dca406a632280e51ba01ba65383872c4f50a` and approved staged-diff SHA-256 `9d4d1f139659e1daa1c556a039998bfb4981f4229574e16cc67a8d5fe1dae24b` map to actual reviewed, pushed `main` commit `d2e0574c38b30516c53aa2034c1d50c761cebd31`
+Selection: reconcile the prior reviewed scaffold result before external activation, as required by `ops/AUTOMATION.md`; no product implementation is selected in this bounded slice
+Work: changed only the tracked automation status, cursor, and run evidence; preserved terminal marker `not-complete`
+Blocker: none
+Implementer review: exact three-file activation-state allowlist inspected before staging
+Independent commit review: `final_review_ummi_scaffold_v2` independently approved the prior scaffold's exact final staged tree; this new activation-state diff requires a separate independent review before commit
+Validation: prior scaffold validation recorded as passing: `npm run lint`; `npm test` (build plus 11 node tests); `bash -n scripts/automation-lock.sh`; lock behavior tests; operator-skill quick validation; and `git diff --check`. Named typecheck/unit/integration/RLS/E2E scripts remain unavailable and are tracked in `L-08`; no deploy is authorized.
+Secret/public scan: no secrets or personal data added by this three-file operational reconciliation; the prior scaffold recorded clean staged/full-tree/reachable-history scans. Public remote remains `git@github.com:ummi-app/therapy.git`.
+Commit intent: activation-state reconciliation on `main`; capture this exact staged-tree reference and independent approval externally before commit
+Independent deploy review: none; no deploy
+Deploy: none
+Status/next: tracked status is `ACTIVE`; external `ummi-hourly-product-builder` remains `PAUSED` until this exact diff is independently approved, committed, and pushed, then activate it. Next deterministic product action: smallest `L-01` purge slice.
