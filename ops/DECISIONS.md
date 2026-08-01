@@ -9,3 +9,5 @@
 | 2026-08-01 | Use GPT-5.6 Terra medium under a persisted single-flight hourly automation. | Provides bounded autonomous execution. |
 | 2026-08-01 | Change the persisted hourly automation executor to GPT-5.6 Luna at high reasoning. | Aligns the repository contract with the user-approved automation configuration. |
 | 2026-08-01 | Stop after `L-01`–`L-10`, exhaustive production acceptance, and terminal marker. | Prevents autonomous scope expansion. |
+| 2026-08-01 | Keep original imported file bytes local; persist only user-confirmed normalized document text and allowlisted extracted fields, with no launch Storage bucket. | Preserves the current privacy boundary and makes the L-02 persistence/RLS surface explicit. |
+| 2026-08-01 | Use restrictive business-record foreign keys and an explicit reverse-order account-deletion workflow; ordinary parent deletes must not erase historical claims or sessions. | Preserves reconciliation history and makes destructive deletion a tested account-level operation in L-04. |

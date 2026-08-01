@@ -47,7 +47,11 @@ const forbidden = [
   ["billing portal", /\bbilling\s+portal\b/i],
   ["per-month price copy", /(?:\$|USD\s*)\s*\d+(?:[.,]\d{2})?\s*(?:\/|per\s*)(?:month|mo)\b/i],
   ["payment-processor or collection copy", /\b(?:payment\s+(?:processor|processing|method|collection|gateway)|(?:collect|accept|process)\s+(?:a\s+)?payments?)\b/i],
-  ["payment environment/config", /\b(?:(?:NEXT_PUBLIC_)?(?:UMMI_)?(?:PAYMENT|STRIPE|BILLING|CHECKOUT|PRICING|SUBSCRIPTION)_[A-Z0-9_]+|(?:PAYMENT|STRIPE)_[A-Z0-9_]+)\b/i],
+  // Allow lowercase reconciliation fields such as `billing_code`, but still
+  // reject conventional uppercase environment names and high-signal
+  // lowercase secret/config names such as `stripe_api_key`.
+  ["payment environment/config", /\b(?:(?:NEXT_PUBLIC_)?(?:UMMI_)?(?:PAYMENT|STRIPE|BILLING|CHECKOUT|PRICING|SUBSCRIPTION)_[A-Z0-9_]+|(?:PAYMENT|STRIPE)_[A-Z0-9_]+)\b/],
+  ["payment secret/config identifier", /\b(?:payment|stripe|billing|checkout|pricing|subscription)_(?:api[_-]?key|secret(?:[_-]?key)?|token|url|webhook(?:[_-]?secret)?|public[_-]?key|private[_-]?key|client[_-]?(?:id|secret))\b/i],
   ["monetization route/file name", /(?:^|[/.])(?:subscribe|subscription|upgrade|pricing|checkout|payment|paid[-_](?:plan|tier))(?:[/.]|$)/i],
   ["monetization API/host", /(?:\/api\/(?:subscribe|subscription|upgrade|pricing|checkout|payment|billing)\b|https?:\/\/[^\s"']*(?:payment|billing|checkout|stripe)[^\s"']*)/i],
   ["standalone monetization export", /\bexport\s+const\s+(?:subscribe|subscription|upgrade|pricing|checkout|payment)\b/i],

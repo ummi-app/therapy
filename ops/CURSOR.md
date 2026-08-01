@@ -1,6 +1,6 @@
 # Hourly execution cursor
 
-Current phase: `L-02` active. `L-01` is done: independently approved staged
+Current phase: `L-02` active, foundation slice `L-02a` complete. `L-01` is done: independently approved staged
 tree `c9903e1e0987273d697120a4d16b288400134248` (binary diff SHA-256
 `c27bf322d8fe2a946d3c84e106ac1e233f049e848170b7ce93e1c367882c59fe`) was
 committed and pushed as `a1862dcf80168cc58900c1f07892f3aa103d0cf3`. The next
@@ -23,6 +23,14 @@ reviewed product result was reconciled in the separate
 to `L-02`, not deployment.
 
 At the start of each run, reconcile this cursor against `ops/BACKLOG.md` and the repository. The source of truth is the backlog plus run-log evidence; update this file to the selected task/subtask, commit hash when applicable, blocking prerequisite, and next deterministic action before the run ends.
+
+This cycle's selected slice `L-02a` inventories the device-local data flow and
+adds the reviewed versioned foundation migration, exhaustive object/RLS
+matrix, provider pgTAP scenario contract, and credential-free local contract
+test. Next deterministic action is `L-02b`: run the migration and behavioral
+RLS matrix against a disposable pinned-target-compatible Supabase environment
+when L-09 credentials/configuration gates permit it, then reconcile any
+findings before L-03 auth work.
 
 Selection algorithm:
 
