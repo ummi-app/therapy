@@ -7,7 +7,7 @@
 | Task repository cwd | `/Users/rohan/repos/therapy-coverage-ledger` |
 | Cadence | Hourly at minute `5`, one run at a time |
 | Automation ID | `ummi-hourly-product-builder` |
-| Status | `PAUSED` during policy reconciliation; reactivate only after this reviewed commit is pushed |
+| Status | `ACTIVE` (externally reactivated after reviewed policy commit `41606225aa502ea7c5cf8fcf363ca88b98335be9`) |
 | Persisted state | This file, `ops/CURSOR.md`, `ops/BACKLOG.md`, and `ops/RUN_LOG.md` in the pinned repository |
 | Terminal marker | `not-complete`; set `complete:<release commit>` only after the mission stop condition |
 

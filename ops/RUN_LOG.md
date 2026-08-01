@@ -35,7 +35,7 @@ Secret/public scan: no new secret-bearing content
 Commit intent: `chore: restore Luna high automation policy and reconcile L-01` on `main`
 Independent deploy review: none; no deploy
 Deploy: none
-Status/next: commit and push this reviewed policy reconciliation; leave automation paused until the user resumes it
+Status/next: policy reconciliation committed/pushed as `41606225aa502ea7c5cf8fcf363ca88b98335be9`; the user has reactivated the external automation, so the next run may select `L-02`
 
 ## 2026-08-01T19:03:39Z — bootstrap-automation — operations scaffold
 
