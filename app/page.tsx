@@ -1,6 +1,14 @@
 "use client";
 
-import { ChangeEvent, FormEvent, ReactNode, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ChangeEvent,
+  FormEvent,
+  ReactNode,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Authorization,
   Claim,
@@ -12,31 +20,90 @@ import {
   SessionStatus,
   TherapySession,
   buildEvidencePacket,
-  detectIssues,
+  emptyLedger,
   extractDocument,
   getForecasts,
+  getOpenIssues,
   getReconciliationRows,
+  hasClaimLine,
+  issueFingerprint,
+  matchDocumentToLedger,
   seedLedger,
 } from "../lib/ledger";
 
 type View = "Watchlist" | "Authorizations" | "Sessions" | "Claims" | "Evidence";
-type ModalName = "authorization" | "session" | "claim" | "import" | "settings" | "pricing" | null;
+type ModalName =
+  | "authorization"
+  | "session"
+  | "claim"
+  | "import"
+  | "settings"
+  | "pricing"
+  | null;
 type ImportDraft = { name: string; text: string; result: ExtractedDocument };
+type Confirmation = {
+  title: string;
+  detail: string;
+  confirmLabel: string;
+  destructive?: boolean;
+  onConfirm: () => void;
+};
 
 const storageKey = "careledger-reconciliation-v1";
 const today = new Date().toISOString().slice(0, 10);
-const views: View[] = ["Watchlist", "Authorizations", "Sessions", "Claims", "Evidence"];
+const views: View[] = [
+  "Watchlist",
+  "Authorizations",
+  "Sessions",
+  "Claims",
+  "Evidence",
+];
+const viewLabels: Record<View, string> = {
+  Watchlist: "Home",
+  Authorizations: "Coverage",
+  Sessions: "Sessions",
+  Claims: "Claims",
+  Evidence: "Documents",
+};
 const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
-const money = (amount: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
-const shortDate = (value: string | null | undefined) => value ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(`${value}T12:00:00`)) : "—";
-const numberValue = (value?: string) => Number((value ?? "0").replace(/,/g, "")) || 0;
-const id = (prefix: string) => `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+const money = (amount: number) =>
+  new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0,
+  }).format(amount);
+const shortDate = (value: string | null | undefined) =>
+  value
+    ? new Intl.DateTimeFormat("en-US", {
+        month: "short",
+        day: "numeric",
+      }).format(new Date(`${value}T12:00:00`))
+    : "—";
+const numberValue = (value?: string) =>
+  Number((value ?? "0").replace(/,/g, "")) || 0;
+const id = (prefix: string) =>
+  `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 
 function normalizeDate(value?: string) {
   if (!value) return today;
   if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
   const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? today : parsed.toISOString().slice(0, 10);
+  return Number.isNaN(parsed.getTime())
+    ? today
+    : parsed.toISOString().slice(0, 10);
+}
+
+function findImportTarget(ledger: Ledger, draft: ImportDraft) {
+  const match = matchDocumentToLedger(ledger, draft.result);
+  const authorization = ledger.authorizations.find(
+    (item) => item.id === match.authorizationId,
+  );
+  const line = authorization?.lines.find((item) => item.id === match.lineId);
+  const session = ledger.sessions.find((item) => item.id === match.sessionId);
+  const serviceDate = draft.result.fields.serviceDate
+    ? normalizeDate(draft.result.fields.serviceDate)
+    : "";
+  return { authorization, line, session, serviceDate };
 }
 
 export default function Home() {
@@ -48,6 +115,13 @@ export default function Home() {
   const [hydrated, setHydrated] = useState(false);
   const [importDraft, setImportDraft] = useState<ImportDraft | null>(null);
   const [importBusy, setImportBusy] = useState(false);
+  const [editingAuthorization, setEditingAuthorization] =
+    useState<Authorization | null>(null);
+  const [editingSession, setEditingSession] = useState<TherapySession | null>(
+    null,
+  );
+  const [editingClaim, setEditingClaim] = useState<Claim | null>(null);
+  const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const backupRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -55,58 +129,239 @@ export default function Home() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Ledger;
-        if (parsed.authorizations && parsed.sessions && parsed.claims) queueMicrotask(() => setLedger(parsed));
-      } catch { window.localStorage.removeItem(storageKey); }
+        if (parsed.authorizations && parsed.sessions && parsed.claims)
+          queueMicrotask(() => setLedger(parsed));
+      } catch {
+        window.localStorage.removeItem(storageKey);
+      }
     }
     queueMicrotask(() => setHydrated(true));
   }, []);
 
   useEffect(() => {
     if (!hydrated) return;
-    const timer = window.setTimeout(() => window.localStorage.setItem(storageKey, JSON.stringify(ledger)), 180);
+    const timer = window.setTimeout(
+      () => window.localStorage.setItem(storageKey, JSON.stringify(ledger)),
+      180,
+    );
     return () => window.clearTimeout(timer);
   }, [ledger, hydrated]);
 
-  const issues = useMemo(() => detectIssues(ledger, today), [ledger]);
+  const issues = useMemo(() => getOpenIssues(ledger, today), [ledger]);
   const rows = useMemo(() => getReconciliationRows(ledger), [ledger]);
   const forecasts = useMemo(() => getForecasts(ledger, today), [ledger]);
-  const criticalCount = issues.filter((issue) => issue.severity === "critical").length;
-  const moneyAtRisk = issues.reduce((sum, issue) => sum + (issue.amount ?? 0), 0);
-  const pendingClaims = ledger.claims.filter((claim) => claim.status === "Pending").length;
+  const criticalCount = issues.filter(
+    (issue) => issue.severity === "critical",
+  ).length;
+  const moneyAtRisk = issues.reduce(
+    (sum, issue) => sum + (issue.amount ?? 0),
+    0,
+  );
+  const pendingClaims = ledger.claims.filter(
+    (claim) => claim.status === "Pending",
+  ).length;
 
-  function updateLedger(change: (current: Ledger) => Ledger) { setLedger((current) => change(current)); }
-  function toast(message: string) { setNotice(message); window.setTimeout(() => setNotice(""), 4200); }
-  function open(name: Exclude<ModalName, null>) { setModal(name); }
-
-  function addAuthorization(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget); const authId = id("auth");
-    const authorization: Authorization = { id: authId, child: String(form.get("child")), service: String(form.get("service")), provider: String(form.get("provider")), number: String(form.get("number")), starts: String(form.get("starts")), ends: String(form.get("ends")), lines: [{ id: id("line"), code: String(form.get("code")), label: String(form.get("label")), unitLabel: String(form.get("unitLabel")), approvedUnits: numberValue(String(form.get("approvedUnits"))), providerReportedUsedUnits: numberValue(String(form.get("reportedUnits"))) }] };
-    updateLedger((current) => ({ ...current, authorizations: [...current.authorizations, authorization] })); setModal(null); toast("Authorization added. Start logging sessions against its billing code.");
+  function updateLedger(change: (current: Ledger) => Ledger) {
+    setLedger((current) => change(current));
+  }
+  function toast(message: string) {
+    setNotice(message);
+    window.setTimeout(() => setNotice(""), 4200);
+  }
+  function open(name: Exclude<ModalName, null>) {
+    if (name === "authorization") setEditingAuthorization(null);
+    if (name === "session") setEditingSession(null);
+    if (name === "claim") setEditingClaim(null);
+    setModal(name);
   }
 
-  function addSession(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget); const authorizationId = String(form.get("authorizationId")); const authorization = ledger.authorizations.find((item) => item.id === authorizationId); const lineId = String(form.get("lineId")) || authorization?.lines[0]?.id || ""; const status = String(form.get("status")) as SessionStatus;
-    const session: TherapySession = { id: id("session"), authorizationId, lineId, date: String(form.get("date")), status, scheduledUnits: numberValue(String(form.get("scheduledUnits"))), attendedUnits: status === "Attended" ? numberValue(String(form.get("attendedUnits"))) : 0, providerBilledUnits: numberValue(String(form.get("providerBilledUnits"))), note: String(form.get("note")) };
-    updateLedger((current) => ({ ...current, sessions: [...current.sessions, session] })); setModal(null); toast(session.providerBilledUnits > session.attendedUnits ? "Session logged — a billing mismatch was flagged." : "Session added to the reconciliation ledger.");
+  function editAuthorization(authorization: Authorization) {
+    setEditingAuthorization(authorization);
+    setModal("authorization");
   }
 
-  function addClaim(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const form = new FormData(event.currentTarget); const sessionId = String(form.get("sessionId")); const session = ledger.sessions.find((item) => item.id === sessionId); const claim: Claim = { id: id("claim"), claimNumber: String(form.get("claimNumber")), authorizationId: session?.authorizationId || String(form.get("authorizationId")), sessionId, submittedAt: String(form.get("submittedAt")), processedAt: String(form.get("processedAt")), status: String(form.get("status")) as ClaimStatus, billedUnits: numberValue(String(form.get("billedUnits"))), processedUnits: numberValue(String(form.get("processedUnits"))), providerBilled: numberValue(String(form.get("providerBilled"))), insurerAllowed: numberValue(String(form.get("insurerAllowed"))), insurerPaid: numberValue(String(form.get("insurerPaid"))), parentResponsibility: numberValue(String(form.get("parentResponsibility"))), parentPaid: numberValue(String(form.get("parentPaid"))), denialReason: String(form.get("denialReason")) };
-    updateLedger((current) => ({ ...current, claims: [claim, ...current.claims] })); setModal(null); toast("Claim added and reconciled against the linked session.");
+  function editSession(session: TherapySession) {
+    setEditingSession(session);
+    setModal("session");
   }
 
-  function updateClaimStatus(claimId: string, status: ClaimStatus) { updateLedger((current) => ({ ...current, claims: current.claims.map((claim) => claim.id === claimId ? { ...claim, status, processedAt: status === "Processed" || status === "Denied" ? (claim.processedAt || today) : claim.processedAt } : claim) })); }
-  function toggleReminder(reminderId: string) { updateLedger((current) => ({ ...current, reminders: current.reminders.map((item) => item.id === reminderId ? { ...item, done: !item.done } : item) })); }
+  function editClaim(claim: Claim) {
+    setEditingClaim(claim);
+    setModal("claim");
+  }
+
+  function saveAuthorization(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const authId = id("auth");
+    const codes = form.getAll("code").map(String);
+    const labels = form.getAll("label").map(String);
+    const unitLabels = form.getAll("unitLabel").map(String);
+    const approvedUnits = form.getAll("approvedUnits").map(String);
+    const reportedUnits = form.getAll("reportedUnits").map(String);
+    const lineIds = form.getAll("lineId").map(String);
+    const authorization: Authorization = {
+      id: editingAuthorization?.id ?? authId,
+      child: String(form.get("child")),
+      service: String(form.get("service")),
+      provider: String(form.get("provider")),
+      number: String(form.get("number")),
+      starts: String(form.get("starts")),
+      ends: String(form.get("ends")),
+      lines: codes.map((code, index) => ({
+        id: lineIds[index] || id("line"),
+        code,
+        label: labels[index] ?? "Authorized service",
+        unitLabel: unitLabels[index] ?? "unit",
+        approvedUnits: numberValue(approvedUnits[index]),
+        providerReportedUsedUnits: numberValue(reportedUnits[index]),
+      })),
+    };
+    updateLedger((current) => ({
+      ...current,
+      authorizations: editingAuthorization
+        ? current.authorizations.map((item) =>
+            item.id === editingAuthorization.id ? authorization : item,
+          )
+        : [...current.authorizations, authorization],
+    }));
+    setModal(null);
+    toast(
+      editingAuthorization
+        ? "Coverage details updated and checked against your sessions."
+        : "Authorization added. Start logging sessions against its billing code.",
+    );
+  }
+
+  function saveSession(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const authorizationId = String(form.get("authorizationId"));
+    const authorization = ledger.authorizations.find(
+      (item) => item.id === authorizationId,
+    );
+    const lineId =
+      String(form.get("lineId")) || authorization?.lines[0]?.id || "";
+    const status = String(form.get("status")) as SessionStatus;
+    const session: TherapySession = {
+      id: editingSession?.id ?? id("session"),
+      authorizationId,
+      lineId,
+      date: String(form.get("date")),
+      status,
+      scheduledUnits: numberValue(String(form.get("scheduledUnits"))),
+      attendedUnits:
+        status === "Attended"
+          ? numberValue(String(form.get("attendedUnits")))
+          : 0,
+      providerBilledUnits: numberValue(String(form.get("providerBilledUnits"))),
+      note: String(form.get("note")),
+    };
+    updateLedger((current) => ({
+      ...current,
+      sessions: editingSession
+        ? current.sessions.map((item) =>
+            item.id === editingSession.id ? session : item,
+          )
+        : [...current.sessions, session],
+    }));
+    setModal(null);
+    toast(
+      session.providerBilledUnits > session.attendedUnits
+        ? "Session saved — a billing mismatch was flagged."
+        : editingSession
+          ? "Session corrected and reconciliation refreshed."
+          : "Session added to the reconciliation ledger.",
+    );
+  }
+
+  function saveClaim(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const sessionId = String(form.get("sessionId"));
+    const session = ledger.sessions.find((item) => item.id === sessionId);
+    const claim: Claim = {
+      id: editingClaim?.id ?? id("claim"),
+      claimNumber: String(form.get("claimNumber")),
+      authorizationId:
+        session?.authorizationId || String(form.get("authorizationId")),
+      sessionId,
+      submittedAt: String(form.get("submittedAt")),
+      processedAt: String(form.get("processedAt")),
+      status: String(form.get("status")) as ClaimStatus,
+      billedUnits: numberValue(String(form.get("billedUnits"))),
+      processedUnits: numberValue(String(form.get("processedUnits"))),
+      providerBilled: numberValue(String(form.get("providerBilled"))),
+      insurerAllowed: numberValue(String(form.get("insurerAllowed"))),
+      insurerPaid: numberValue(String(form.get("insurerPaid"))),
+      parentResponsibility: numberValue(
+        String(form.get("parentResponsibility")),
+      ),
+      parentPaid: numberValue(String(form.get("parentPaid"))),
+      denialReason: String(form.get("denialReason")),
+    };
+    updateLedger((current) => ({
+      ...current,
+      claims: editingClaim
+        ? current.claims.map((item) =>
+            item.id === editingClaim.id ? claim : item,
+          )
+        : [claim, ...current.claims],
+    }));
+    setModal(null);
+    toast(
+      editingClaim
+        ? "Claim corrected and reconciliation refreshed."
+        : "Claim added and reconciled against the linked session.",
+    );
+  }
+
+  function updateClaimStatus(claimId: string, status: ClaimStatus) {
+    updateLedger((current) => ({
+      ...current,
+      claims: current.claims.map((claim) =>
+        claim.id === claimId
+          ? {
+              ...claim,
+              status,
+              processedAt:
+                status === "Processed" || status === "Denied"
+                  ? claim.processedAt || today
+                  : claim.processedAt,
+            }
+          : claim,
+      ),
+    }));
+    toast(`Claim marked ${status.toLowerCase()}.`);
+  }
+  function toggleReminder(reminderId: string) {
+    updateLedger((current) => ({
+      ...current,
+      reminders: current.reminders.map((item) =>
+        item.id === reminderId ? { ...item, done: !item.done } : item,
+      ),
+    }));
+  }
 
   async function fileToText(file: File) {
-    if (file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf")) {
+    if (
+      file.type === "application/pdf" ||
+      file.name.toLowerCase().endsWith(".pdf")
+    ) {
       const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
       pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-      const pdf = await pdfjs.getDocument({ data: new Uint8Array(await file.arrayBuffer()), useSystemFonts: true }).promise;
+      const pdf = await pdfjs.getDocument({
+        data: new Uint8Array(await file.arrayBuffer()),
+        useSystemFonts: true,
+      }).promise;
       const pages: string[] = [];
       for (let pageNumber = 1; pageNumber <= pdf.numPages; pageNumber += 1) {
         const content = await (await pdf.getPage(pageNumber)).getTextContent();
-        pages.push(content.items.map((item) => "str" in item ? item.str : "").join(" "));
+        pages.push(
+          content.items
+            .map((item) => ("str" in item ? item.str : ""))
+            .join(" "),
+        );
       }
       return pages.join("\n");
     }
@@ -114,93 +369,2369 @@ export default function Home() {
   }
 
   async function importFile(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0]; if (!file) return; setImportBusy(true);
-    try { const text = await fileToText(file); setImportDraft({ name: file.name, text, result: extractDocument(text) }); }
-    catch { toast("This file could not be read. Try a text-based PDF or paste the document text."); }
-    finally { setImportBusy(false); event.target.value = ""; }
+    const file = event.target.files?.[0];
+    if (!file) return;
+    setImportBusy(true);
+    try {
+      const text = await fileToText(file);
+      setImportDraft({ name: file.name, text, result: extractDocument(text) });
+    } catch {
+      toast(
+        "This file could not be read. Try a text-based PDF or paste the document text.",
+      );
+    } finally {
+      setImportBusy(false);
+      event.target.value = "";
+    }
   }
 
-  function analyzePastedText(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const text = String(form.get("documentText")); setImportDraft({ name: "Pasted document", text, result: extractDocument(text) }); }
+  function analyzePastedText(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    const text = String(form.get("documentText"));
+    setImportDraft({
+      name: "Pasted document",
+      text,
+      result: extractDocument(text),
+    });
+  }
+
+  function updateImportField(field: string, value: string) {
+    setImportDraft((current) =>
+      current
+        ? {
+            ...current,
+            result: {
+              ...current.result,
+              fields: { ...current.result.fields, [field]: value },
+            },
+          }
+        : current,
+    );
+  }
 
   function saveImportedDocument() {
-    if (!importDraft) return; const { fields } = importDraft.result; const imported: ImportedDocument = { id: id("doc"), name: importDraft.name, kind: importDraft.result.kind, importedAt: today, text: importDraft.text, extracted: fields };
+    if (!importDraft) return;
+    const { fields } = importDraft.result;
+    const target = findImportTarget(ledger, importDraft);
+    const duplicateClaim =
+      importDraft.result.kind === "EOB" &&
+      fields.claimNumber &&
+      hasClaimLine(ledger, fields.claimNumber, target.session?.id);
+    if (duplicateClaim) {
+      toast(`Claim ${fields.claimNumber} is already in your records.`);
+      return;
+    }
+    const willReconcile =
+      importDraft.result.kind === "Authorization" ||
+      (importDraft.result.kind === "EOB" &&
+        Boolean(target.authorization && target.session)) ||
+      (importDraft.result.kind === "Provider statement" &&
+        Boolean(target.authorization && target.line));
+    const imported: ImportedDocument = {
+      id: id("doc"),
+      name: importDraft.name,
+      kind: importDraft.result.kind,
+      importedAt: today,
+      text: importDraft.text,
+      extracted: fields,
+    };
     updateLedger((current) => {
       let next = { ...current, documents: [imported, ...current.documents] };
       if (importDraft.result.kind === "Authorization") {
         const authId = id("auth");
-        next = { ...next, authorizations: [...next.authorizations, { id: authId, child: fields.child || "Child", service: "Imported therapy authorization", provider: fields.provider || "Provider", number: fields.authorizationNumber || "Not found", starts: normalizeDate(fields.startDate), ends: normalizeDate(fields.endDate), lines: [{ id: id("line"), code: fields.billingCode || "Unspecified", label: "Imported authorized service", unitLabel: "unit", approvedUnits: numberValue(fields.approvedUnits), providerReportedUsedUnits: 0 }] }] };
+        next = {
+          ...next,
+          authorizations: [
+            ...next.authorizations,
+            {
+              id: authId,
+              child: fields.child || "Child",
+              service: "Imported therapy authorization",
+              provider: fields.provider || "Provider",
+              number: fields.authorizationNumber || "Not found",
+              starts: normalizeDate(fields.startDate),
+              ends: normalizeDate(fields.endDate),
+              lines: [
+                {
+                  id: id("line"),
+                  code: fields.billingCode || "Unspecified",
+                  label: "Imported authorized service",
+                  unitLabel: "unit",
+                  approvedUnits: numberValue(fields.approvedUnits),
+                  providerReportedUsedUnits: 0,
+                },
+              ],
+            },
+          ],
+        };
       }
       if (importDraft.result.kind === "EOB") {
-        const authorization = next.authorizations.find((item) => item.number === fields.authorizationNumber) || next.authorizations.find((item) => item.lines.some((line) => line.code === fields.billingCode)) || next.authorizations[0];
-        const session = next.sessions.find((item) => item.authorizationId === authorization?.id && item.date === normalizeDate(fields.serviceDate)) || next.sessions.find((item) => item.authorizationId === authorization?.id);
-        if (authorization && session) next = { ...next, claims: [{ id: id("claim"), claimNumber: fields.claimNumber || `Imported-${Date.now()}`, authorizationId: authorization.id, sessionId: session.id, submittedAt: normalizeDate(fields.serviceDate), processedAt: today, status: fields.denialReason ? "Denied" : "Processed", billedUnits: numberValue(fields.billedUnits), processedUnits: numberValue(fields.processedUnits), providerBilled: numberValue(fields.providerBilled), insurerAllowed: numberValue(fields.insurerAllowed), insurerPaid: numberValue(fields.insurerPaid), parentResponsibility: numberValue(fields.parentResponsibility), parentPaid: 0, denialReason: fields.denialReason || "" }, ...next.claims] };
+        if (target.authorization && target.session)
+          next = {
+            ...next,
+            claims: [
+              {
+                id: id("claim"),
+                claimNumber: fields.claimNumber || `Imported-${Date.now()}`,
+                authorizationId: target.authorization.id,
+                sessionId: target.session.id,
+                submittedAt: normalizeDate(fields.serviceDate),
+                processedAt: today,
+                status: fields.denialReason ? "Denied" : "Processed",
+                billedUnits: numberValue(fields.billedUnits),
+                processedUnits: numberValue(fields.processedUnits),
+                providerBilled: numberValue(fields.providerBilled),
+                insurerAllowed: numberValue(fields.insurerAllowed),
+                insurerPaid: numberValue(fields.insurerPaid),
+                parentResponsibility: numberValue(fields.parentResponsibility),
+                parentPaid: 0,
+                denialReason: fields.denialReason || "",
+              },
+              ...next.claims,
+            ],
+          };
       }
       if (importDraft.result.kind === "Provider statement") {
-        const authorization = next.authorizations.find((item) => item.lines.some((line) => line.code === fields.billingCode)) || next.authorizations[0];
-        if (authorization) next = { ...next, authorizations: next.authorizations.map((item) => item.id === authorization.id ? { ...item, lines: item.lines.map((line, index) => index === 0 ? { ...line, providerReportedUsedUnits: numberValue(fields.billedUnits || fields.processedUnits) } : line) } : item) };
+        if (target.authorization && target.line)
+          next = {
+            ...next,
+            authorizations: next.authorizations.map((item) =>
+              item.id === target.authorization?.id
+                ? {
+                    ...item,
+                    lines: item.lines.map((line) =>
+                      line.id === target.line?.id
+                        ? {
+                            ...line,
+                            providerReportedUsedUnits: numberValue(
+                              fields.billedUnits || fields.processedUnits,
+                            ),
+                          }
+                        : line,
+                    ),
+                  }
+                : item,
+            ),
+          };
       }
       return next;
     });
-    setImportDraft(null); setModal(null); toast(`${importDraft.result.kind} imported and reconciled locally.`);
+    setImportDraft(null);
+    setModal(null);
+    toast(
+      willReconcile
+        ? `${importDraft.result.kind} imported and reconciled locally.`
+        : "Source saved, but no exact record match was found. Add the matching coverage or session before reconciling.",
+    );
   }
 
-  function copyPacket(issue: Issue) { navigator.clipboard.writeText(buildEvidencePacket(issue, ledger)); toast("Call script and evidence summary copied."); }
-  function downloadPacket(issue: Issue) { const blob = new Blob([buildEvidencePacket(issue, ledger)], { type: "text/plain" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `careledger-evidence-${issue.id}.txt`; anchor.click(); URL.revokeObjectURL(url); toast("Evidence and correction packet downloaded."); }
-  function exportBackup() { const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), ledger }, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `careledger-private-backup-${today}.json`; anchor.click(); URL.revokeObjectURL(url); toast("Private backup downloaded."); }
-  function restoreBackup(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; file.text().then((text) => { try { const parsed = JSON.parse(text) as Ledger | { ledger: Ledger }; const next = "ledger" in parsed ? parsed.ledger : parsed; if (!next.sessions || !next.claims || !next.authorizations) throw new Error(); setLedger(next); toast("Workspace restored."); } catch { toast("That backup could not be restored."); } }); event.target.value = ""; }
-  function reset() { if (window.confirm("Restore the sample discrepancy workspace? Your local records will be replaced.")) { setLedger(copy(seedLedger)); setView("Watchlist"); setModal(null); toast("Sample workspace restored."); } }
-  function choosePlan(plan: string) { updateLedger((current) => ({ ...current, plan })); setModal(null); toast(`${plan} selected in this mock checkout.`); }
+  function copyPacket(issue: Issue) {
+    navigator.clipboard.writeText(buildEvidencePacket(issue, ledger));
+    toast("Call script and evidence summary copied.");
+  }
+  function downloadPacket(issue: Issue) {
+    const blob = new Blob([buildEvidencePacket(issue, ledger)], {
+      type: "text/plain",
+    });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `careledger-evidence-${issue.id}.txt`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast("Evidence and correction packet downloaded.");
+  }
+  function exportBackup() {
+    const blob = new Blob(
+      [
+        JSON.stringify(
+          { exportedAt: new Date().toISOString(), ledger },
+          null,
+          2,
+        ),
+      ],
+      { type: "application/json" },
+    );
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `careledger-private-backup-${today}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+    toast("Private backup downloaded.");
+  }
+  function restoreBackup(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    file.text().then((text) => {
+      try {
+        const parsed = JSON.parse(text) as Ledger | { ledger: Ledger };
+        const next = "ledger" in parsed ? parsed.ledger : parsed;
+        if (!next.sessions || !next.claims || !next.authorizations)
+          throw new Error();
+        setLedger(next);
+        toast("Workspace restored.");
+      } catch {
+        toast("That backup could not be restored.");
+      }
+    });
+    event.target.value = "";
+  }
+  function reset() {
+    setConfirmation({
+      title: "Restore the sample workspace?",
+      detail:
+        "Your current local records will be replaced with the example family and cannot be recovered unless you downloaded a backup.",
+      confirmLabel: "Restore sample",
+      destructive: true,
+      onConfirm: () => {
+        setLedger(copy(seedLedger));
+        setView("Watchlist");
+        setModal(null);
+        toast("Sample workspace restored.");
+      },
+    });
+  }
+  function startFresh() {
+    setConfirmation({
+      title: "Start with a blank workspace?",
+      detail:
+        "The example records will be removed from this browser. You can restore them later from settings.",
+      confirmLabel: "Start with my records",
+      onConfirm: () => {
+        setLedger(copy(emptyLedger));
+        setView("Watchlist");
+        setActiveIssue(null);
+        toast("Blank workspace ready. Import an authorization to begin.");
+      },
+    });
+  }
+  function keepSample() {
+    updateLedger((current) => ({ ...current, sampleWorkspace: false }));
+    toast("Example mode dismissed. Your changes will continue saving locally.");
+  }
+  function resolveIssue(issue: Issue, note: string) {
+    updateLedger((current) => ({
+      ...current,
+      resolutions: [
+        ...(current.resolutions ?? []).filter(
+          (resolution) => resolution.issueId !== issue.id,
+        ),
+        {
+          issueId: issue.id,
+          title: issue.title,
+          resolvedAt: new Date().toISOString(),
+          fingerprint: issueFingerprint(issue),
+          note: note.trim(),
+        },
+      ],
+    }));
+    setActiveIssue(null);
+    toast("Resolution saved to your private case history.");
+  }
+  function reopenResolvedIssues() {
+    updateLedger((current) => ({
+      ...current,
+      resolvedIssueIds: [],
+      resolutions: [],
+    }));
+    toast("Resolved cases are back in your action queue.");
+  }
 
-  return <main className="app-shell">
-    <aside className="sidebar"><button className="brand" onClick={() => setView("Watchlist")}><span className="brand-mark">C</span><span>careledger</span></button><div className="workspace-badge"><span>ER</span><div><strong>Eli & Maya</strong><small>Private on this device</small></div></div><nav aria-label="Primary navigation">{views.map((item) => <button key={item} className={view === item ? "nav-item active" : "nav-item"} onClick={() => setView(item)}><span>{item === "Watchlist" ? "◎" : item === "Authorizations" ? "▤" : item === "Sessions" ? "◫" : item === "Claims" ? "$" : "▱"}</span>{item}{item === "Watchlist" && criticalCount > 0 && <b>{criticalCount}</b>}</button>)}</nav><div className="sidebar-note"><strong>Nothing leaves this device.</strong><small>Documents are read and reconciled locally.</small></div><div className="sidebar-bottom"><button className="upgrade-card" onClick={() => open("pricing")}><span>✦</span><div><strong>{ledger.plan === "Free" ? "Unlock Family" : `${ledger.plan} plan`}</strong><small>Mock checkout</small></div></button><button className="profile" onClick={() => open("settings")}><span className="profile-avatar">AR</span><span>Alex Rivera</span><span>•••</span></button></div></aside>
-    <section className="content"><header className="topbar"><div><p className="eyebrow">THERAPY COVERAGE WATCH</p><h1>{view === "Watchlist" ? "Catch problems before care stops." : view}</h1></div><div className="header-actions"><span className="saved-state"><i /> Saved locally</span><button className="secondary-button" onClick={() => open("import")}>Import document</button><button className="primary-button" onClick={() => open("session")}>+ Log session</button></div></header>
-      {view === "Watchlist" && <Watchlist ledger={ledger} issues={issues} forecasts={forecasts} rows={rows} moneyAtRisk={moneyAtRisk} pendingClaims={pendingClaims} onIssue={setActiveIssue} onView={setView} onToggleReminder={toggleReminder} onImport={() => open("import")} onSession={() => open("session")} />}
-      {view === "Authorizations" && <Authorizations ledger={ledger} forecasts={forecasts} onAdd={() => open("authorization")} onIssue={(issue) => setActiveIssue(issue)} issues={issues} />}
-      {view === "Sessions" && <Sessions rows={rows} onAdd={() => open("session")} />}
-      {view === "Claims" && <Claims ledger={ledger} issues={issues} onAdd={() => open("claim")} onStatus={updateClaimStatus} onIssue={setActiveIssue} />}
-      {view === "Evidence" && <Evidence ledger={ledger} issues={issues} onImport={() => open("import")} onIssue={setActiveIssue} />}
+  function removeAuthorization(authorizationId: string) {
+    const sessionIds = ledger.sessions
+      .filter((session) => session.authorizationId === authorizationId)
+      .map((session) => session.id);
+    const claimCount = ledger.claims.filter(
+      (claim) =>
+        claim.authorizationId === authorizationId ||
+        sessionIds.includes(claim.sessionId),
+    ).length;
+    setConfirmation({
+      title: "Remove this coverage record?",
+      detail: `This will also remove ${sessionIds.length} linked session${sessionIds.length === 1 ? "" : "s"} and ${claimCount} linked claim${claimCount === 1 ? "" : "s"}. This cannot be undone.`,
+      confirmLabel: "Remove coverage and links",
+      destructive: true,
+      onConfirm: () => {
+        updateLedger((current) => ({
+          ...current,
+          authorizations: current.authorizations.filter(
+            (item) => item.id !== authorizationId,
+          ),
+          sessions: current.sessions.filter(
+            (item) => item.authorizationId !== authorizationId,
+          ),
+          claims: current.claims.filter(
+            (item) =>
+              item.authorizationId !== authorizationId &&
+              !sessionIds.includes(item.sessionId),
+          ),
+        }));
+        toast("Authorization and linked records removed.");
+      },
+    });
+  }
+  function removeSession(sessionId: string) {
+    const claimCount = ledger.claims.filter(
+      (claim) => claim.sessionId === sessionId,
+    ).length;
+    setConfirmation({
+      title: "Remove this session?",
+      detail: `This will also remove ${claimCount} linked claim${claimCount === 1 ? "" : "s"}. This cannot be undone.`,
+      confirmLabel: "Remove session",
+      destructive: true,
+      onConfirm: () => {
+        updateLedger((current) => ({
+          ...current,
+          sessions: current.sessions.filter((item) => item.id !== sessionId),
+          claims: current.claims.filter((item) => item.sessionId !== sessionId),
+        }));
+        toast("Session and linked claim removed.");
+      },
+    });
+  }
+  function removeClaim(claimId: string) {
+    setConfirmation({
+      title: "Remove this claim?",
+      detail:
+        "The linked session will stay in your records, but the insurer amounts will be removed. This cannot be undone.",
+      confirmLabel: "Remove claim",
+      destructive: true,
+      onConfirm: () => {
+        updateLedger((current) => ({
+          ...current,
+          claims: current.claims.filter((item) => item.id !== claimId),
+        }));
+        toast("Claim removed.");
+      },
+    });
+  }
+  function removeDocument(documentId: string) {
+    setConfirmation({
+      title: "Remove this source document?",
+      detail:
+        "Records created from the document will stay, but the original imported text will be removed. This cannot be undone.",
+      confirmLabel: "Remove document",
+      destructive: true,
+      onConfirm: () => {
+        updateLedger((current) => ({
+          ...current,
+          documents: current.documents.filter((item) => item.id !== documentId),
+        }));
+        toast("Source document removed.");
+      },
+    });
+  }
+  function choosePlan(plan: string) {
+    updateLedger((current) => ({ ...current, plan }));
+    setModal(null);
+    toast(`${plan} selected in this mock checkout.`);
+  }
+
+  return (
+    <main className="app-shell">
+      <aside className="sidebar">
+        <button className="brand" onClick={() => setView("Watchlist")}>
+          <span className="brand-mark">C</span>
+          <span>careledger</span>
+        </button>
+        <div className="workspace-badge">
+          <span>ER</span>
+          <div>
+            <strong>Eli & Maya</strong>
+            <small>Private on this device</small>
+          </div>
+        </div>
+        <nav aria-label="Primary navigation">
+          {views.map((item) => (
+            <button
+              key={item}
+              className={view === item ? "nav-item active" : "nav-item"}
+              onClick={() => setView(item)}
+              aria-label={viewLabels[item]}
+            >
+              <span>
+                {item === "Watchlist"
+                  ? "◎"
+                  : item === "Authorizations"
+                    ? "▤"
+                    : item === "Sessions"
+                      ? "◫"
+                      : item === "Claims"
+                        ? "$"
+                        : "▱"}
+              </span>
+              {viewLabels[item]}
+              {item === "Watchlist" && criticalCount > 0 && (
+                <b>{criticalCount}</b>
+              )}
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-note">
+          <strong>Nothing leaves this device.</strong>
+          <small>Documents are read and reconciled locally.</small>
+        </div>
+        <div className="sidebar-bottom">
+          <button className="upgrade-card" onClick={() => open("pricing")}>
+            <span>✦</span>
+            <div>
+              <strong>
+                {ledger.plan === "Free"
+                  ? "Unlock Family"
+                  : `${ledger.plan} plan`}
+              </strong>
+              <small>Mock checkout</small>
+            </div>
+          </button>
+          <button className="profile" onClick={() => open("settings")}>
+            <span className="profile-avatar">AR</span>
+            <span>Alex Rivera</span>
+            <span>•••</span>
+          </button>
+        </div>
+      </aside>
+      <section className="content">
+        <header className="topbar">
+          <div>
+            <p className="eyebrow">THERAPY COVERAGE WATCH</p>
+            <h1>
+              {view === "Watchlist"
+                ? "Catch problems before care stops."
+                : viewLabels[view]}
+            </h1>
+          </div>
+          <div className="header-actions">
+            <span className="saved-state">
+              <i /> Saved locally
+            </span>
+            <button className="secondary-button" onClick={() => open("import")}>
+              Import document
+            </button>
+            <button
+              className="primary-button"
+              onClick={() => open("session")}
+              disabled={ledger.authorizations.length === 0}
+              title={
+                ledger.authorizations.length
+                  ? undefined
+                  : "Add an authorization first"
+              }
+            >
+              + Log session
+            </button>
+          </div>
+        </header>
+        {ledger.sampleWorkspace && (
+          <SampleBanner onStartFresh={startFresh} onKeepSample={keepSample} />
+        )}
+        {view === "Watchlist" && (
+          <Watchlist
+            ledger={ledger}
+            issues={issues}
+            forecasts={forecasts}
+            rows={rows}
+            moneyAtRisk={moneyAtRisk}
+            pendingClaims={pendingClaims}
+            onIssue={setActiveIssue}
+            onView={setView}
+            onToggleReminder={toggleReminder}
+            onImport={() => open("import")}
+            onSession={() => open("session")}
+            onAuthorization={() => open("authorization")}
+          />
+        )}
+        {view === "Authorizations" && (
+          <Authorizations
+            ledger={ledger}
+            forecasts={forecasts}
+            onAdd={() => open("authorization")}
+            onEdit={editAuthorization}
+            onIssue={(issue) => setActiveIssue(issue)}
+            issues={issues}
+            onRemove={removeAuthorization}
+          />
+        )}
+        {view === "Sessions" && (
+          <Sessions
+            rows={rows}
+            onAdd={() => open("session")}
+            onEdit={editSession}
+            onRemove={removeSession}
+          />
+        )}
+        {view === "Claims" && (
+          <Claims
+            ledger={ledger}
+            issues={issues}
+            onAdd={() => open("claim")}
+            onStatus={updateClaimStatus}
+            onIssue={setActiveIssue}
+            onEdit={editClaim}
+            onRemove={removeClaim}
+          />
+        )}
+        {view === "Evidence" && (
+          <Evidence
+            ledger={ledger}
+            issues={issues}
+            onImport={() => open("import")}
+            onIssue={setActiveIssue}
+            onRemove={removeDocument}
+          />
+        )}
+      </section>
+      <input
+        ref={backupRef}
+        hidden
+        type="file"
+        accept="application/json"
+        onChange={restoreBackup}
+      />
+      {modal === "authorization" && (
+        <AuthorizationModal
+          ledger={ledger}
+          initial={editingAuthorization}
+          onClose={() => setModal(null)}
+          onSubmit={saveAuthorization}
+        />
+      )}
+      {modal === "session" && (
+        <SessionModal
+          ledger={ledger}
+          initial={editingSession}
+          onClose={() => setModal(null)}
+          onSubmit={saveSession}
+        />
+      )}
+      {modal === "claim" && (
+        <ClaimModal
+          ledger={ledger}
+          initial={editingClaim}
+          onClose={() => setModal(null)}
+          onSubmit={saveClaim}
+        />
+      )}
+      {modal === "import" && (
+        <ImportModal
+          draft={importDraft}
+          busy={importBusy}
+          onClose={() => {
+            setModal(null);
+            setImportDraft(null);
+          }}
+          onFile={importFile}
+          onPaste={analyzePastedText}
+          onSave={saveImportedDocument}
+          onFieldChange={updateImportField}
+          ledger={ledger}
+        />
+      )}
+      {modal === "settings" && (
+        <SettingsModal
+          onClose={() => setModal(null)}
+          onExport={exportBackup}
+          onRestore={() => backupRef.current?.click()}
+          onReset={reset}
+          resolutions={ledger.resolutions ?? []}
+          resolvedCount={
+            (ledger.resolvedIssueIds ?? []).length +
+            (ledger.resolutions ?? []).length
+          }
+          onReopenResolved={reopenResolvedIssues}
+        />
+      )}
+      {modal === "pricing" && (
+        <PricingModal
+          plan={ledger.plan}
+          onClose={() => setModal(null)}
+          onChoose={choosePlan}
+        />
+      )}
+      {activeIssue && (
+        <IssueDrawer
+          issue={activeIssue}
+          ledger={ledger}
+          onClose={() => setActiveIssue(null)}
+          onCopy={() => copyPacket(activeIssue)}
+          onDownload={() => downloadPacket(activeIssue)}
+          onResolve={(note) => resolveIssue(activeIssue, note)}
+        />
+      )}
+      {confirmation && (
+        <ConfirmationModal
+          confirmation={confirmation}
+          onCancel={() => setConfirmation(null)}
+          onConfirm={() => {
+            const action = confirmation.onConfirm;
+            setConfirmation(null);
+            action();
+          }}
+        />
+      )}
+      {notice && (
+        <div className="toast" role="status">
+          <span>✓</span>
+          {notice}
+          <button onClick={() => setNotice("")}>×</button>
+        </div>
+      )}
+    </main>
+  );
+}
+
+function ConfirmationModal({
+  confirmation,
+  onCancel,
+  onConfirm,
+}: {
+  confirmation: Confirmation;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <Modal title={confirmation.title} onClose={onCancel}>
+      <p className="eyebrow">CHECK BEFORE CONTINUING</p>
+      <h2>{confirmation.title}</h2>
+      <p className="confirmation-copy">{confirmation.detail}</p>
+      <div className="modal-actions">
+        <button className="secondary-button" onClick={onCancel}>
+          Keep my records
+        </button>
+        <button
+          className={
+            confirmation.destructive ? "danger-button" : "primary-button"
+          }
+          onClick={onConfirm}
+        >
+          {confirmation.confirmLabel}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
+function SampleBanner({
+  onStartFresh,
+  onKeepSample,
+}: {
+  onStartFresh: () => void;
+  onKeepSample: () => void;
+}) {
+  return (
+    <section className="sample-banner" aria-label="Example workspace">
+      <span className="sample-badge">EXAMPLE DATA</span>
+      <div>
+        <strong>You’re exploring a sample family workspace.</strong>
+        <small>
+          Nothing here is connected to an insurer or provider. Start fresh when
+          you’re ready to use your own records.
+        </small>
+      </div>
+      <button className="secondary-button" onClick={onKeepSample}>
+        Keep exploring
+      </button>
+      <button className="primary-button" onClick={onStartFresh}>
+        Start with my records
+      </button>
     </section>
-    <input ref={backupRef} hidden type="file" accept="application/json" onChange={restoreBackup} />
-    {modal === "authorization" && <AuthorizationModal onClose={() => setModal(null)} onSubmit={addAuthorization} />}
-    {modal === "session" && <SessionModal ledger={ledger} onClose={() => setModal(null)} onSubmit={addSession} />}
-    {modal === "claim" && <ClaimModal ledger={ledger} onClose={() => setModal(null)} onSubmit={addClaim} />}
-    {modal === "import" && <ImportModal draft={importDraft} busy={importBusy} onClose={() => { setModal(null); setImportDraft(null); }} onFile={importFile} onPaste={analyzePastedText} onSave={saveImportedDocument} />}
-    {modal === "settings" && <SettingsModal onClose={() => setModal(null)} onExport={exportBackup} onRestore={() => backupRef.current?.click()} onReset={reset} />}
-    {modal === "pricing" && <PricingModal plan={ledger.plan} onClose={() => setModal(null)} onChoose={choosePlan} />}
-    {activeIssue && <IssueDrawer issue={activeIssue} ledger={ledger} onClose={() => setActiveIssue(null)} onCopy={() => copyPacket(activeIssue)} onDownload={() => downloadPacket(activeIssue)} />}
-    {notice && <div className="toast" role="status"><span>✓</span>{notice}<button onClick={() => setNotice("")}>×</button></div>}
-  </main>;
+  );
 }
 
-function Watchlist({ ledger, issues, forecasts, rows, moneyAtRisk, pendingClaims, onIssue, onView, onToggleReminder, onImport, onSession }: { ledger: Ledger; issues: Issue[]; forecasts: ReturnType<typeof getForecasts>; rows: ReturnType<typeof getReconciliationRows>; moneyAtRisk: number; pendingClaims: number; onIssue: (issue: Issue) => void; onView: (view: View) => void; onToggleReminder: (id: string) => void; onImport: () => void; onSession: () => void }) {
-  const topIssue = issues[0]; const matchingRow = topIssue ? rows.find((row) => row.session.id === topIssue.sessionId) : undefined;
-  return <><section className="overview-grid"><div className="hero-panel"><p className="eyebrow light">YOUR INDEPENDENT RECORD</p><h2>{issues.filter((item) => item.severity === "critical").length ? `${issues.filter((item) => item.severity === "critical").length} discrepancies need your attention.` : "Your records match."}</h2><p>CareLedger compares what was scheduled, attended, billed, processed, and paid—then gives you the evidence and exact next question.</p><div className="hero-actions"><button onClick={onSession}>Log today’s session</button><button onClick={onImport}>Import EOB or statement</button></div><div className="trust-line"><span>✓ Local document reading</span><span>✓ No insurer login required</span></div></div><div className="score-panel"><span className="score-label">Coverage confidence</span><strong>{Math.max(18, 100 - issues.filter((item) => item.severity === "critical").length * 23 - issues.filter((item) => item.severity === "warning").length * 7)}%</strong><div className="score-track"><span style={{ width: `${Math.max(18, 100 - issues.length * 8)}%` }} /></div><small>Based on matching session, provider, and insurer records</small></div></section>
-    <section className="metric-grid"><Metric label="Money at risk" value={money(moneyAtRisk)} detail="From denied claims and overpayments" tone="danger" /><Metric label="Open discrepancies" value={String(issues.filter((item) => item.category === "Units").length)} detail="Unit or attendance conflicts" tone="warning" /><Metric label="Pending claims" value={String(pendingClaims)} detail="One reminder after 14 days" tone="neutral" /><Metric label="Next coverage end" value={shortDate(ledger.authorizations.map((item) => item.ends).sort()[0])} detail="Renewal runway is monitored" tone="good" /></section>
-    {topIssue && <section className="featured-issue"><div className="issue-kicker"><span className={`severity-dot ${topIssue.severity}`} /> MOST URGENT</div><div className="featured-copy"><h2>{topIssue.title}</h2><p>{topIssue.detail}</p>{matchingRow && <div className="mini-reconcile"><span><small>Attended</small><strong>{matchingRow.attended}</strong></span><b>→</b><span className="bad"><small>Provider billed</small><strong>{matchingRow.providerBilled}</strong></span><b>→</b><span><small>Insurer processed</small><strong>{matchingRow.insurerProcessed}</strong></span></div>}<button className="primary-button" onClick={() => onIssue(topIssue)}>Review evidence & call script</button></div><div className="featured-side"><span>Recommended next step</span><strong>{topIssue.action}</strong><small>CareLedger keeps the source records attached to this case.</small></div></section>}
-    <section className="dashboard-columns"><article className="panel"><PanelHeader eyebrow="ACTION QUEUE" title="What needs follow-through" action="View claims" onAction={() => onView("Claims")} /><div className="issue-list">{issues.slice(0, 5).map((issue) => <button className="issue-row" key={issue.id} onClick={() => onIssue(issue)}><span className={`issue-icon ${issue.severity}`}>{issue.category === "Units" ? "≠" : issue.category === "Claim" ? "$" : "◷"}</span><span><strong>{issue.title}</strong><small>{issue.detail}</small></span><b>›</b></button>)}</div></article><article className="panel"><PanelHeader eyebrow="RUNWAY" title="When units may run out" action="All authorizations" onAction={() => onView("Authorizations")} /><div className="forecast-list">{forecasts.map((forecast) => { const auth = ledger.authorizations.find((item) => item.id === forecast.authorizationId)!; const line = auth.lines.find((item) => item.id === forecast.lineId)!; return <div className="forecast-row" key={forecast.lineId}><span><strong>{line.code} · {auth.child}</strong><small>{auth.provider}</small></span><span><strong>{forecast.remaining} left</strong><small>{forecast.weeklyRate}/week · runout {shortDate(forecast.projectedRunout)}</small></span></div>; })}</div><div className="reminder-list">{ledger.reminders.map((reminder) => <label key={reminder.id}><input type="checkbox" checked={reminder.done} onChange={() => onToggleReminder(reminder.id)} /><span><strong>{reminder.title}</strong><small>Due {shortDate(reminder.due)}</small></span></label>)}</div></article></section></>;
+function Watchlist({
+  ledger,
+  issues,
+  forecasts,
+  rows,
+  moneyAtRisk,
+  pendingClaims,
+  onIssue,
+  onView,
+  onToggleReminder,
+  onImport,
+  onSession,
+  onAuthorization,
+}: {
+  ledger: Ledger;
+  issues: Issue[];
+  forecasts: ReturnType<typeof getForecasts>;
+  rows: ReturnType<typeof getReconciliationRows>;
+  moneyAtRisk: number;
+  pendingClaims: number;
+  onIssue: (issue: Issue) => void;
+  onView: (view: View) => void;
+  onToggleReminder: (id: string) => void;
+  onImport: () => void;
+  onSession: () => void;
+  onAuthorization: () => void;
+}) {
+  if (!ledger.authorizations.length) {
+    return (
+      <section className="panel first-run-panel">
+        <span className="setup-step">STEP 1 OF 3</span>
+        <h2>Start with your coverage letter.</h2>
+        <p>
+          Add an authorization manually or import the letter. CareLedger will
+          keep each billing code and unit balance separate.
+        </p>
+        <div className="first-run-actions">
+          <button className="primary-button" onClick={onImport}>
+            Import authorization
+          </button>
+          <button className="secondary-button" onClick={onAuthorization}>
+            Enter it manually
+          </button>
+        </div>
+        <ol className="setup-list">
+          <li className="active">Add coverage</li>
+          <li>Log sessions and cancellations</li>
+          <li>Import an EOB or provider statement</li>
+        </ol>
+        <small className="privacy-note">
+          Documents are read locally in this browser.
+        </small>
+      </section>
+    );
+  }
+  const topIssue = issues[0];
+  const matchingRows = rows.filter((row) => !row.mismatch).length;
+  const matchingRow = topIssue
+    ? rows.find((row) => row.session.id === topIssue.sessionId)
+    : undefined;
+  return (
+    <>
+      <section className="overview-grid">
+        <div className="hero-panel">
+          <p className="eyebrow light">YOUR INDEPENDENT RECORD</p>
+          <h2>
+            {!ledger.sessions.length
+              ? "Coverage added. Log your first session."
+              : issues.filter((item) => item.severity === "critical").length
+                ? `${issues.filter((item) => item.severity === "critical").length} discrepancies need your attention.`
+                : "Your records match."}
+          </h2>
+          <p>
+            CareLedger compares what was scheduled, attended, billed, processed,
+            and paid—then gives you the evidence and exact next question.
+          </p>
+          <div className="hero-actions">
+            <button onClick={onSession}>Log today’s session</button>
+            <button onClick={onImport}>Import EOB or statement</button>
+          </div>
+          <div className="trust-line">
+            <span>✓ Local document reading</span>
+            <span>✓ No insurer login required</span>
+          </div>
+        </div>
+        <div className="score-panel">
+          <span className="score-label">Session records checked</span>
+          <strong>{`${matchingRows} of ${rows.length}`}</strong>
+          <div className="score-track">
+            <span
+              style={{
+                width: `${rows.length ? (matchingRows / rows.length) * 100 : 0}%`,
+              }}
+            />
+          </div>
+          <small>
+            {rows.length - matchingRows
+              ? `${rows.length - matchingRows} session record${rows.length - matchingRows === 1 ? "" : "s"} need review.`
+              : "No session billing differences found."}
+          </small>
+        </div>
+      </section>
+      <section className="metric-grid">
+        <Metric
+          label="Money at risk"
+          value={money(moneyAtRisk)}
+          detail="From denied claims and overpayments"
+          tone="danger"
+        />
+        <Metric
+          label="Open discrepancies"
+          value={String(
+            issues.filter((item) => item.category === "Units").length,
+          )}
+          detail="Unit or attendance conflicts"
+          tone="warning"
+        />
+        <Metric
+          label="Pending claims"
+          value={String(pendingClaims)}
+          detail="One reminder after 14 days"
+          tone="neutral"
+        />
+        <Metric
+          label="Next coverage end"
+          value={shortDate(
+            ledger.authorizations.map((item) => item.ends).sort()[0],
+          )}
+          detail="Renewal runway is monitored"
+          tone="good"
+        />
+      </section>
+      {topIssue && (
+        <section className="featured-issue">
+          <div className="issue-kicker">
+            <span className={`severity-dot ${topIssue.severity}`} /> MOST URGENT
+          </div>
+          <div className="featured-copy">
+            <h2>{topIssue.title}</h2>
+            <p>{topIssue.detail}</p>
+            {matchingRow && (
+              <div className="mini-reconcile">
+                <span>
+                  <small>Attended</small>
+                  <strong>{matchingRow.attended}</strong>
+                </span>
+                <b>→</b>
+                <span className="bad">
+                  <small>Provider billed</small>
+                  <strong>{matchingRow.providerBilled}</strong>
+                </span>
+                <b>→</b>
+                <span>
+                  <small>Insurer processed</small>
+                  <strong>{matchingRow.insurerProcessed}</strong>
+                </span>
+              </div>
+            )}
+            <button
+              className="primary-button"
+              onClick={() => onIssue(topIssue)}
+            >
+              Review evidence & call script
+            </button>
+          </div>
+          <div className="featured-side">
+            <span>Recommended next step</span>
+            <strong>{topIssue.action}</strong>
+            <small>
+              CareLedger keeps the source records attached to this case.
+            </small>
+          </div>
+        </section>
+      )}
+      <section className="dashboard-columns">
+        <article className="panel">
+          <PanelHeader
+            eyebrow="ACTION QUEUE"
+            title="What needs follow-through"
+            action="View claims"
+            onAction={() => onView("Claims")}
+          />
+          <div className="issue-list">
+            {issues.slice(0, 5).map((issue) => (
+              <button
+                className="issue-row"
+                key={issue.id}
+                onClick={() => onIssue(issue)}
+              >
+                <span className={`issue-icon ${issue.severity}`}>
+                  {issue.category === "Units"
+                    ? "≠"
+                    : issue.category === "Claim"
+                      ? "$"
+                      : "◷"}
+                </span>
+                <span>
+                  <strong>{issue.title}</strong>
+                  <small>{issue.detail}</small>
+                </span>
+                <b>›</b>
+              </button>
+            ))}
+          </div>
+        </article>
+        <article className="panel">
+          <PanelHeader
+            eyebrow="RUNWAY"
+            title="When units may run out"
+            action="All authorizations"
+            onAction={() => onView("Authorizations")}
+          />
+          <div className="forecast-list">
+            {forecasts.map((forecast) => {
+              const auth = ledger.authorizations.find(
+                (item) => item.id === forecast.authorizationId,
+              )!;
+              const line = auth.lines.find(
+                (item) => item.id === forecast.lineId,
+              )!;
+              return (
+                <div className="forecast-row" key={forecast.lineId}>
+                  <span>
+                    <strong>
+                      {line.code} · {auth.child}
+                    </strong>
+                    <small>{auth.provider}</small>
+                  </span>
+                  <span>
+                    <strong>{forecast.remaining} left</strong>
+                    <small>
+                      {forecast.weeklyRate}/week · runout{" "}
+                      {shortDate(forecast.projectedRunout)}
+                    </small>
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="reminder-list">
+            {ledger.reminders.map((reminder) => (
+              <label key={reminder.id}>
+                <input
+                  type="checkbox"
+                  checked={reminder.done}
+                  onChange={() => onToggleReminder(reminder.id)}
+                />
+                <span>
+                  <strong>{reminder.title}</strong>
+                  <small>Due {shortDate(reminder.due)}</small>
+                </span>
+              </label>
+            ))}
+          </div>
+        </article>
+      </section>
+    </>
+  );
 }
 
-function Authorizations({ ledger, forecasts, onAdd, issues, onIssue }: { ledger: Ledger; forecasts: ReturnType<typeof getForecasts>; onAdd: () => void; issues: Issue[]; onIssue: (issue: Issue) => void }) { return <section className="panel full-panel"><PanelHeader eyebrow="BY BILLING CODE" title="Authorization unit runway" action="+ Add authorization" onAction={onAdd} /><p className="section-note">Track every approved service separately. Provider-reported use is compared with the sessions you logged.</p><div className="auth-cards">{ledger.authorizations.map((auth) => <article className="auth-card" key={auth.id}><div className="auth-card-head"><span className="provider-logo">{auth.service.slice(0, 2).toUpperCase()}</span><div><strong>{auth.service}</strong><small>{auth.child} · {auth.provider}</small></div><span className="auth-number">{auth.number}</span></div><div className="auth-dates"><span>{shortDate(auth.starts)} – {shortDate(auth.ends)}</span><small>{Math.max(0, Math.ceil((new Date(`${auth.ends}T12:00:00`).getTime() - new Date(`${today}T12:00:00`).getTime()) / 86_400_000))} days left</small></div>{auth.lines.map((line) => { const forecast = forecasts.find((item) => item.lineId === line.id)!; const issue = issues.find((item) => item.authorizationId === auth.id && item.id === `reported-${line.id}`); return <div className="code-line" key={line.id}><div><strong>CPT {line.code}</strong><small>{line.label} · {line.unitLabel}</small></div><div className="unit-compare"><span><small>Your sessions</small><strong>{forecast.attended}</strong></span><span className={forecast.providerReported > forecast.attended ? "mismatch-number" : ""}><small>Provider reports</small><strong>{forecast.providerReported}</strong></span><span><small>Approved</small><strong>{forecast.approved}</strong></span></div><div className="unit-track"><span style={{ width: `${Math.min(100, (forecast.attended / forecast.approved) * 100)}%` }} /></div><div className="runout-line"><span>{forecast.remaining} units remaining</span><span>Projected runout {shortDate(forecast.projectedRunout)}</span>{issue && <button onClick={() => onIssue(issue)}>Review {forecast.providerReported - forecast.attended} unit mismatch →</button>}</div></div>; })}</article>)}</div></section>; }
+function Authorizations({
+  ledger,
+  forecasts,
+  onAdd,
+  onEdit,
+  issues,
+  onIssue,
+  onRemove,
+}: {
+  ledger: Ledger;
+  forecasts: ReturnType<typeof getForecasts>;
+  onAdd: () => void;
+  onEdit: (authorization: Authorization) => void;
+  issues: Issue[];
+  onIssue: (issue: Issue) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <section className="panel full-panel">
+      <PanelHeader
+        eyebrow="BY BILLING CODE"
+        title="Authorization unit runway"
+        action="+ Add authorization"
+        onAction={onAdd}
+      />
+      <p className="section-note">
+        Track every approved service separately. Provider-reported use is
+        compared with the sessions you logged.
+      </p>
+      <div className="auth-cards">
+        {ledger.authorizations.map((auth) => (
+          <article className="auth-card" key={auth.id}>
+            <div className="auth-card-head">
+              <span className="provider-logo">
+                {auth.service.slice(0, 2).toUpperCase()}
+              </span>
+              <div>
+                <strong>{auth.service}</strong>
+                <small>
+                  {auth.child} · {auth.provider}
+                </small>
+              </div>
+              <div className="record-actions">
+                <span className="auth-number">{auth.number}</span>
+                <button
+                  className="text-action"
+                  onClick={() => onEdit(auth)}
+                  aria-label={`Edit authorization ${auth.number}`}
+                >
+                  Edit
+                </button>
+                <button
+                  className="text-danger"
+                  onClick={() => onRemove(auth.id)}
+                  aria-label={`Remove authorization ${auth.number}`}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+            <div className="auth-dates">
+              <span>
+                {shortDate(auth.starts)} – {shortDate(auth.ends)}
+              </span>
+              <small>
+                {Math.max(
+                  0,
+                  Math.ceil(
+                    (new Date(`${auth.ends}T12:00:00`).getTime() -
+                      new Date(`${today}T12:00:00`).getTime()) /
+                      86_400_000,
+                  ),
+                )}{" "}
+                days left
+              </small>
+            </div>
+            {auth.lines.map((line) => {
+              const forecast = forecasts.find(
+                (item) => item.lineId === line.id,
+              )!;
+              const issue = issues.find(
+                (item) =>
+                  item.authorizationId === auth.id &&
+                  item.id === `reported-${line.id}`,
+              );
+              return (
+                <div className="code-line" key={line.id}>
+                  <div>
+                    <strong>CPT {line.code}</strong>
+                    <small>
+                      {line.label} · {line.unitLabel}
+                    </small>
+                  </div>
+                  <div className="unit-compare">
+                    <span>
+                      <small>Your sessions</small>
+                      <strong>{forecast.attended}</strong>
+                    </span>
+                    <span
+                      className={
+                        forecast.providerReported > forecast.attended
+                          ? "mismatch-number"
+                          : ""
+                      }
+                    >
+                      <small>Provider reports</small>
+                      <strong>{forecast.providerReported}</strong>
+                    </span>
+                    <span>
+                      <small>Approved</small>
+                      <strong>{forecast.approved}</strong>
+                    </span>
+                  </div>
+                  <div className="unit-track">
+                    <span
+                      style={{
+                        width: `${Math.min(100, (forecast.attended / forecast.approved) * 100)}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="runout-line">
+                    <span>{forecast.remaining} units remaining</span>
+                    <span>
+                      Projected runout {shortDate(forecast.projectedRunout)}
+                    </span>
+                    {issue && (
+                      <button onClick={() => onIssue(issue)}>
+                        Review {forecast.providerReported - forecast.attended}{" "}
+                        unit mismatch →
+                      </button>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </article>
+        ))}
+      </div>
+    </section>
+  );
+}
 
-function Sessions({ rows, onAdd }: { rows: ReturnType<typeof getReconciliationRows>; onAdd: () => void }) { return <section className="panel full-panel"><PanelHeader eyebrow="ONE SOURCE OF TRUTH" title="Session-to-payment reconciliation" action="+ Log session" onAction={onAdd} /><p className="section-note">A row turns red when the provider billed more than your attended record supports.</p><div className="reconcile-table"><div className="reconcile-head"><span>Date & service</span><span>Scheduled</span><span>Attended</span><span>Provider billed</span><span>Insurer processed</span><span>Parent paid</span></div>{rows.map((row) => <div className={row.mismatch ? "reconcile-row mismatch" : "reconcile-row"} key={row.session.id}><span><strong>{shortDate(row.session.date)} · {row.line?.code}</strong><small>{row.authorization?.provider} · {row.session.status}</small></span><b>{row.scheduled}</b><b>{row.attended}</b><b>{row.providerBilled}{row.providerBilled > row.attended && <i>+{row.providerBilled - row.attended}</i>}</b><b>{row.insurerProcessed}</b><b>{money(row.parentPaid)}</b></div>)}</div><div className="legend"><span><i className="legend-good" /> Records align</span><span><i className="legend-bad" /> Billing needs review</span><span>Units are kept separate by CPT code.</span></div></section>; }
+function Sessions({
+  rows,
+  onAdd,
+  onEdit,
+  onRemove,
+}: {
+  rows: ReturnType<typeof getReconciliationRows>;
+  onAdd: () => void;
+  onEdit: (session: TherapySession) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <section className="panel full-panel">
+      <PanelHeader
+        eyebrow="ONE SOURCE OF TRUTH"
+        title="Session-to-payment reconciliation"
+        action="+ Log session"
+        onAction={onAdd}
+      />
+      <p className="section-note">
+        A row turns red when the provider billed more than your attended record
+        supports.
+      </p>
+      <div className="reconcile-table">
+        <div className="reconcile-head">
+          <span>Date & service</span>
+          <span>Scheduled</span>
+          <span>Attended</span>
+          <span>Provider billed</span>
+          <span>Insurer processed</span>
+          <span>Parent paid</span>
+          <span>Actions</span>
+        </div>
+        {rows.map((row) => (
+          <div
+            className={
+              row.mismatch ? "reconcile-row mismatch" : "reconcile-row"
+            }
+            key={row.session.id}
+          >
+            <span>
+              <strong>
+                {shortDate(row.session.date)} · {row.line?.code}
+              </strong>
+              <small>
+                {row.authorization?.provider} · {row.session.status}
+              </small>
+            </span>
+            <b data-label="Scheduled">{row.scheduled}</b>
+            <b data-label="Attended">{row.attended}</b>
+            <b data-label="Provider billed">
+              {row.providerBilled}
+              {row.providerBilled > row.attended && (
+                <i>+{row.providerBilled - row.attended}</i>
+              )}
+            </b>
+            <b data-label="Insurer processed">{row.insurerProcessed}</b>
+            <b data-label="Parent paid">{money(row.parentPaid)}</b>
+            <div className="row-actions">
+              <button
+                className="text-action"
+                onClick={() => onEdit(row.session)}
+                aria-label={`Edit session from ${shortDate(row.session.date)}`}
+              >
+                Edit
+              </button>
+              <button
+                className="row-remove"
+                onClick={() => onRemove(row.session.id)}
+                aria-label={`Remove session from ${shortDate(row.session.date)}`}
+              >
+                Remove
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="legend">
+        <span>
+          <i className="legend-good" /> Records align
+        </span>
+        <span>
+          <i className="legend-bad" /> Billing needs review
+        </span>
+        <span>Units are kept separate by CPT code.</span>
+      </div>
+    </section>
+  );
+}
 
-function Claims({ ledger, issues, onAdd, onStatus, onIssue }: { ledger: Ledger; issues: Issue[]; onAdd: () => void; onStatus: (id: string, status: ClaimStatus) => void; onIssue: (issue: Issue) => void }) { return <section className="panel full-panel"><PanelHeader eyebrow="EOB & PROVIDER COMPARISON" title="Claims before they become surprises" action="+ Add claim or EOB" onAction={onAdd} /><div className="claim-cards">{ledger.claims.map((claim) => { const auth = ledger.authorizations.find((item) => item.id === claim.authorizationId); const session = ledger.sessions.find((item) => item.id === claim.sessionId); const claimIssues = issues.filter((issue) => issue.claimId === claim.id); return <article className="claim-card" key={claim.id}><div className="claim-title"><div><span className={`claim-status ${claim.status.toLowerCase().replace(" ", "-")}`}>{claim.status}</span><strong>{claim.claimNumber}</strong><small>{auth?.provider} · {shortDate(session?.date)}</small></div><select value={claim.status} aria-label={`Status for ${claim.claimNumber}`} onChange={(event) => onStatus(claim.id, event.target.value as ClaimStatus)}>{(["Not submitted", "Pending", "Processed", "Denied"] as ClaimStatus[]).map((status) => <option key={status}>{status}</option>)}</select></div><div className="claim-money"><span><small>Provider billed</small><strong>{money(claim.providerBilled)}</strong></span><span><small>Insurer allowed</small><strong>{money(claim.insurerAllowed)}</strong></span><span><small>Insurer paid</small><strong>{money(claim.insurerPaid)}</strong></span><span><small>You owe</small><strong>{money(claim.parentResponsibility)}</strong></span></div><div className="claim-units"><span>Units billed <b>{claim.billedUnits}</b></span><span>Units processed <b>{claim.processedUnits}</b></span><span>Submitted {shortDate(claim.submittedAt)}</span></div>{claim.denialReason && <p className="denial-reason">Denial reason: {claim.denialReason}</p>}{claimIssues.map((issue) => <button className="claim-alert" key={issue.id} onClick={() => onIssue(issue)}><span>!</span><strong>{issue.title}</strong><b>Review →</b></button>)}</article>; })}</div></section>; }
+function Claims({
+  ledger,
+  issues,
+  onAdd,
+  onStatus,
+  onIssue,
+  onEdit,
+  onRemove,
+}: {
+  ledger: Ledger;
+  issues: Issue[];
+  onAdd: () => void;
+  onStatus: (id: string, status: ClaimStatus) => void;
+  onIssue: (issue: Issue) => void;
+  onEdit: (claim: Claim) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <section className="panel full-panel">
+      <PanelHeader
+        eyebrow="EOB & PROVIDER COMPARISON"
+        title="Claims before they become surprises"
+        action="+ Add claim or EOB"
+        onAction={onAdd}
+      />
+      <div className="claim-cards">
+        {ledger.claims.map((claim) => {
+          const auth = ledger.authorizations.find(
+            (item) => item.id === claim.authorizationId,
+          );
+          const session = ledger.sessions.find(
+            (item) => item.id === claim.sessionId,
+          );
+          const claimIssues = issues.filter(
+            (issue) => issue.claimId === claim.id,
+          );
+          return (
+            <article className="claim-card" key={claim.id}>
+              <div className="claim-title">
+                <div>
+                  <span
+                    className={`claim-status ${claim.status.toLowerCase().replace(" ", "-")}`}
+                  >
+                    {claim.status}
+                  </span>
+                  <strong>{claim.claimNumber}</strong>
+                  <small>
+                    {auth?.provider} · {shortDate(session?.date)}
+                  </small>
+                </div>
+                <div className="claim-controls">
+                  <select
+                    value={claim.status}
+                    aria-label={`Status for ${claim.claimNumber}`}
+                    onChange={(event) =>
+                      onStatus(claim.id, event.target.value as ClaimStatus)
+                    }
+                  >
+                    {(
+                      [
+                        "Not submitted",
+                        "Pending",
+                        "Processed",
+                        "Denied",
+                      ] as ClaimStatus[]
+                    ).map((status) => (
+                      <option key={status}>{status}</option>
+                    ))}
+                  </select>
+                  <button
+                    className="text-action"
+                    onClick={() => onEdit(claim)}
+                    aria-label={`Edit claim ${claim.claimNumber}`}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    className="text-danger"
+                    onClick={() => onRemove(claim.id)}
+                    aria-label={`Remove claim ${claim.claimNumber}`}
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+              <div className="claim-money">
+                <span>
+                  <small>Provider billed</small>
+                  <strong>{money(claim.providerBilled)}</strong>
+                </span>
+                <span>
+                  <small>Insurer allowed</small>
+                  <strong>{money(claim.insurerAllowed)}</strong>
+                </span>
+                <span>
+                  <small>Insurer paid</small>
+                  <strong>{money(claim.insurerPaid)}</strong>
+                </span>
+                <span>
+                  <small>You owe</small>
+                  <strong>{money(claim.parentResponsibility)}</strong>
+                </span>
+              </div>
+              <div className="claim-units">
+                <span>
+                  Units billed <b>{claim.billedUnits}</b>
+                </span>
+                <span>
+                  Units processed <b>{claim.processedUnits}</b>
+                </span>
+                <span>Submitted {shortDate(claim.submittedAt)}</span>
+              </div>
+              {claim.denialReason && (
+                <p className="denial-reason">
+                  Denial reason: {claim.denialReason}
+                </p>
+              )}
+              {claimIssues.map((issue) => (
+                <button
+                  className="claim-alert"
+                  key={issue.id}
+                  onClick={() => onIssue(issue)}
+                >
+                  <span>!</span>
+                  <strong>{issue.title}</strong>
+                  <b>Review →</b>
+                </button>
+              ))}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
 
-function Evidence({ ledger, issues, onImport, onIssue }: { ledger: Ledger; issues: Issue[]; onImport: () => void; onIssue: (issue: Issue) => void }) { return <section className="evidence-layout"><article className="panel full-panel"><PanelHeader eyebrow="LOCAL DOCUMENT INBOX" title="Imported source records" action="+ Import document" onAction={onImport} /><p className="section-note">CareLedger reads text-based PDFs and text files locally, extracts key fields, and stores the source with your private workspace.</p>{ledger.documents.length ? <div className="document-list">{ledger.documents.map((document) => <article className="document-row" key={document.id}><span className="document-icon">{document.kind === "EOB" ? "$" : document.kind === "Authorization" ? "A" : "▱"}</span><span><strong>{document.name}</strong><small>{document.kind} · Imported {shortDate(document.importedAt)}</small></span><span className="field-count">{Object.keys(document.extracted).length} fields found</span></article>)}</div> : <div className="empty"><span>▱</span><h3>No documents imported yet</h3><p>Import an authorization letter, EOB, or provider statement to reduce manual entry.</p><button className="primary-button" onClick={onImport}>Import a document</button></div>}</article><aside className="panel packet-panel"><PanelHeader eyebrow="READY TO USE" title="Evidence packets" /><p>Every discrepancy can produce a dated record summary, call script, and correction or appeal request.</p>{issues.slice(0, 5).map((issue) => <button key={issue.id} onClick={() => onIssue(issue)}><span className={`severity-dot ${issue.severity}`} /><span><strong>{issue.title}</strong><small>{issue.category} packet</small></span><b>›</b></button>)}</aside></section>; }
+function Evidence({
+  ledger,
+  issues,
+  onImport,
+  onIssue,
+  onRemove,
+}: {
+  ledger: Ledger;
+  issues: Issue[];
+  onImport: () => void;
+  onIssue: (issue: Issue) => void;
+  onRemove: (id: string) => void;
+}) {
+  return (
+    <section className="evidence-layout">
+      <article className="panel full-panel">
+        <PanelHeader
+          eyebrow="LOCAL DOCUMENT INBOX"
+          title="Imported source records"
+          action="+ Import document"
+          onAction={onImport}
+        />
+        <p className="section-note">
+          CareLedger reads text-based PDFs and text files locally, extracts key
+          fields, and stores the source with your private workspace.
+        </p>
+        {ledger.documents.length ? (
+          <div className="document-list">
+            {ledger.documents.map((document) => (
+              <article className="document-row" key={document.id}>
+                <span className="document-icon">
+                  {document.kind === "EOB"
+                    ? "$"
+                    : document.kind === "Authorization"
+                      ? "A"
+                      : "▱"}
+                </span>
+                <span>
+                  <strong>{document.name}</strong>
+                  <small>
+                    {document.kind} · Imported {shortDate(document.importedAt)}
+                  </small>
+                </span>
+                <span className="field-count">
+                  {Object.keys(document.extracted).length} fields found
+                </span>
+                <button
+                  className="text-danger"
+                  onClick={() => onRemove(document.id)}
+                  aria-label={`Remove document ${document.name}`}
+                >
+                  Remove
+                </button>
+              </article>
+            ))}
+          </div>
+        ) : (
+          <div className="empty">
+            <span>▱</span>
+            <h3>No documents imported yet</h3>
+            <p>
+              Import an authorization letter, EOB, or provider statement to
+              reduce manual entry.
+            </p>
+            <button className="primary-button" onClick={onImport}>
+              Import a document
+            </button>
+          </div>
+        )}
+      </article>
+      <aside className="panel packet-panel">
+        <PanelHeader eyebrow="READY TO USE" title="Evidence packets" />
+        <p>
+          Every discrepancy can produce a dated record summary, call script, and
+          correction or appeal request.
+        </p>
+        {issues.slice(0, 5).map((issue) => (
+          <button key={issue.id} onClick={() => onIssue(issue)}>
+            <span className={`severity-dot ${issue.severity}`} />
+            <span>
+              <strong>{issue.title}</strong>
+              <small>{issue.category} packet</small>
+            </span>
+            <b>›</b>
+          </button>
+        ))}
+      </aside>
+    </section>
+  );
+}
 
-function Metric({ label, value, detail, tone }: { label: string; value: string; detail: string; tone: string }) { return <article className={`metric-card ${tone}`}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>; }
-function PanelHeader({ eyebrow, title, action, onAction }: { eyebrow: string; title: string; action?: string; onAction?: () => void }) { return <header className="panel-header"><div><p className="eyebrow">{eyebrow}</p><h2>{title}</h2></div>{action && <button onClick={onAction}>{action}</button>}</header>; }
-function Modal({ title, onClose, children, wide = false }: { title: string; onClose: () => void; children: ReactNode; wide?: boolean }) { return <div className="modal-backdrop" onMouseDown={onClose}><section className={wide ? "modal wide" : "modal"} role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}><button className="close" onClick={onClose} aria-label="Close">×</button>{children}</section></div>; }
+function Metric({
+  label,
+  value,
+  detail,
+  tone,
+}: {
+  label: string;
+  value: string;
+  detail: string;
+  tone: string;
+}) {
+  return (
+    <article className={`metric-card ${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+      <small>{detail}</small>
+    </article>
+  );
+}
+function PanelHeader({
+  eyebrow,
+  title,
+  action,
+  onAction,
+}: {
+  eyebrow: string;
+  title: string;
+  action?: string;
+  onAction?: () => void;
+}) {
+  return (
+    <header className="panel-header">
+      <div>
+        <p className="eyebrow">{eyebrow}</p>
+        <h2>{title}</h2>
+      </div>
+      {action && <button onClick={onAction}>{action}</button>}
+    </header>
+  );
+}
+function Modal({
+  title,
+  onClose,
+  children,
+  wide = false,
+}: {
+  title: string;
+  onClose: () => void;
+  children: ReactNode;
+  wide?: boolean;
+}) {
+  return (
+    <div className="modal-backdrop" onMouseDown={onClose}>
+      <section
+        className={wide ? "modal wide" : "modal"}
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button className="close" onClick={onClose} aria-label="Close">
+          ×
+        </button>
+        {children}
+      </section>
+    </div>
+  );
+}
 
-function AuthorizationModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { return <Modal title="Add authorization" onClose={onClose}><p className="eyebrow">NEW AUTHORIZATION</p><h2>Start with one approved service</h2><p>Each billing code gets its own unit balance so unlike services never get mixed together.</p><form onSubmit={onSubmit}><div className="form-split"><label>Child<input name="child" required /></label><label>Provider<input name="provider" required /></label></div><div className="form-split"><label>Therapy service<input name="service" placeholder="Behavior therapy" required /></label><label>Authorization number<input name="number" required /></label></div><div className="form-split"><label>Starts<input name="starts" type="date" required /></label><label>Ends<input name="ends" type="date" required /></label></div><div className="code-form"><strong>Approved service line</strong><div className="form-split"><label>Billing/CPT code<input name="code" placeholder="97153" required /></label><label>Approved units<input name="approvedUnits" type="number" min="1" required /></label></div><label>Description<input name="label" placeholder="Technician direct treatment" required /></label><div className="form-split"><label>Unit type<select name="unitLabel"><option>15-minute unit</option><option>30-minute unit</option><option>session</option><option>hour</option></select></label><label>Provider says already used<input name="reportedUnits" type="number" min="0" defaultValue="0" /></label></div></div><button className="primary-full" type="submit">Add authorization →</button></form></Modal>; }
+function AuthorizationModal({
+  ledger,
+  initial,
+  onClose,
+  onSubmit,
+}: {
+  ledger: Ledger;
+  initial: Authorization | null;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const [serviceLines, setServiceLines] = useState(
+    initial?.lines.map((_, index) => index) ?? [0],
+  );
+  const nextServiceLine = Math.max(...serviceLines) + 1;
+  const linkedLineIds = new Set(
+    ledger.sessions.map((session) => session.lineId),
+  );
+  return (
+    <Modal
+      title={initial ? "Edit authorization" : "Add authorization"}
+      onClose={onClose}
+    >
+      <p className="eyebrow">
+        {initial ? "CORRECT COVERAGE" : "NEW AUTHORIZATION"}
+      </p>
+      <h2>
+        {initial
+          ? "Update approved coverage"
+          : "Start with one approved service"}
+      </h2>
+      <p>
+        Each billing code gets its own unit balance so unlike services never get
+        mixed together.
+      </p>
+      <form onSubmit={onSubmit}>
+        <div className="form-split">
+          <label>
+            Child
+            <input name="child" defaultValue={initial?.child} required />
+          </label>
+          <label>
+            Provider
+            <input name="provider" defaultValue={initial?.provider} required />
+          </label>
+        </div>
+        <div className="form-split">
+          <label>
+            Therapy service
+            <input
+              name="service"
+              placeholder="Behavior therapy"
+              defaultValue={initial?.service}
+              required
+            />
+          </label>
+          <label>
+            Authorization number
+            <input name="number" defaultValue={initial?.number} required />
+          </label>
+        </div>
+        <div className="form-split">
+          <label>
+            Starts
+            <input
+              name="starts"
+              type="date"
+              defaultValue={initial?.starts}
+              required
+            />
+          </label>
+          <label>
+            Ends
+            <input
+              name="ends"
+              type="date"
+              defaultValue={initial?.ends}
+              required
+            />
+          </label>
+        </div>
+        {serviceLines.map((serviceLine, index) => (
+          <div className="code-form" key={serviceLine}>
+            <input
+              type="hidden"
+              name="lineId"
+              value={initial?.lines[serviceLine]?.id ?? ""}
+            />
+            <div className="code-form-heading">
+              <strong>Approved service line {index + 1}</strong>
+              {serviceLines.length > 1 && (
+                <button
+                  type="button"
+                  className="text-danger"
+                  disabled={Boolean(
+                    initial?.lines[serviceLine] &&
+                      linkedLineIds.has(initial.lines[serviceLine].id),
+                  )}
+                  title={
+                    initial?.lines[serviceLine] &&
+                    linkedLineIds.has(initial.lines[serviceLine].id)
+                      ? "A session uses this billing code"
+                      : undefined
+                  }
+                  onClick={() =>
+                    setServiceLines((current) =>
+                      current.filter((item) => item !== serviceLine),
+                    )
+                  }
+                >
+                  {initial?.lines[serviceLine] &&
+                  linkedLineIds.has(initial.lines[serviceLine].id)
+                    ? "Used in sessions"
+                    : "Remove line"}
+                </button>
+              )}
+            </div>
+            <div className="form-split">
+              <label>
+                Billing/CPT code
+                <input
+                  name="code"
+                  placeholder="97153"
+                  defaultValue={initial?.lines[serviceLine]?.code}
+                  required
+                />
+              </label>
+              <label>
+                Approved units
+                <input
+                  name="approvedUnits"
+                  type="number"
+                  min="1"
+                  defaultValue={initial?.lines[serviceLine]?.approvedUnits}
+                  required
+                />
+              </label>
+            </div>
+            <label>
+              Description
+              <input
+                name="label"
+                placeholder="Technician direct treatment"
+                defaultValue={initial?.lines[serviceLine]?.label}
+                required
+              />
+            </label>
+            <div className="form-split">
+              <label>
+                Unit type
+                <select
+                  name="unitLabel"
+                  defaultValue={
+                    initial?.lines[serviceLine]?.unitLabel ?? "15-minute unit"
+                  }
+                >
+                  <option>15-minute unit</option>
+                  <option>30-minute unit</option>
+                  <option>session</option>
+                  <option>hour</option>
+                </select>
+              </label>
+              <label>
+                Provider says already used
+                <input
+                  name="reportedUnits"
+                  type="number"
+                  min="0"
+                  defaultValue={
+                    initial?.lines[serviceLine]?.providerReportedUsedUnits ?? 0
+                  }
+                />
+              </label>
+            </div>
+          </div>
+        ))}
+        <button
+          className="add-service-line"
+          type="button"
+          onClick={() =>
+            setServiceLines((current) => [...current, nextServiceLine])
+          }
+        >
+          + Add another billing code
+        </button>
+        <button className="primary-full" type="submit">
+          {initial ? "Save coverage changes →" : "Add authorization →"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
 
-function SessionModal({ ledger, onClose, onSubmit }: { ledger: Ledger; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { const [authorizationId, setAuthorizationId] = useState(ledger.authorizations[0]?.id ?? ""); const [status, setStatus] = useState<SessionStatus>("Attended"); const auth = ledger.authorizations.find((item) => item.id === authorizationId); return <Modal title="Log session" onClose={onClose}><p className="eyebrow">YOUR ATTENDANCE RECORD</p><h2>Log a therapy session</h2><p>Capture cancellations too—they are essential evidence when billed units do not match.</p><form onSubmit={onSubmit}><label>Authorization<select name="authorizationId" value={authorizationId} onChange={(event) => setAuthorizationId(event.target.value)}>{ledger.authorizations.map((item) => <option value={item.id} key={item.id}>{item.child} · {item.service}</option>)}</select></label><label>Billing code<select name="lineId">{auth?.lines.map((line) => <option value={line.id} key={line.id}>{line.code} · {line.label}</option>)}</select></label><div className="form-split"><label>Date<input name="date" type="date" defaultValue={today} required /></label><label>Status<select name="status" value={status} onChange={(event) => setStatus(event.target.value as SessionStatus)}>{(["Scheduled", "Attended", "Child cancelled", "Provider cancelled"] as SessionStatus[]).map((item) => <option key={item}>{item}</option>)}</select></label></div><div className="form-triple"><label>Scheduled units<input name="scheduledUnits" type="number" min="0" defaultValue="4" required /></label><label>Attended units<input name="attendedUnits" type="number" min="0" defaultValue={status === "Attended" ? "4" : "0"} disabled={status !== "Attended"} required /></label><label>Provider billed units<input name="providerBilledUnits" type="number" min="0" defaultValue="0" /></label></div><label>Note<input name="note" placeholder="Who cancelled, confirmation number, or other detail" /></label><button className="primary-full" type="submit">Log and check for mismatch →</button></form></Modal>; }
+function SessionModal({
+  ledger,
+  initial,
+  onClose,
+  onSubmit,
+}: {
+  ledger: Ledger;
+  initial: TherapySession | null;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const [authorizationId, setAuthorizationId] = useState(
+    initial?.authorizationId ?? ledger.authorizations[0]?.id ?? "",
+  );
+  const [lineId, setLineId] = useState(initial?.lineId ?? "");
+  const [status, setStatus] = useState<SessionStatus>(
+    initial?.status ?? "Attended",
+  );
+  const [attendedUnits, setAttendedUnits] = useState(
+    initial?.attendedUnits ?? 4,
+  );
+  const auth = ledger.authorizations.find(
+    (item) => item.id === authorizationId,
+  );
+  return (
+    <Modal title={initial ? "Edit session" : "Log session"} onClose={onClose}>
+      <p className="eyebrow">
+        {initial ? "CORRECT ATTENDANCE" : "YOUR ATTENDANCE RECORD"}
+      </p>
+      <h2>{initial ? "Update this session" : "Log a therapy session"}</h2>
+      <p>
+        Capture cancellations too—they are essential evidence when billed units
+        do not match.
+      </p>
+      <form onSubmit={onSubmit}>
+        <label>
+          Authorization
+          <select
+            name="authorizationId"
+            value={authorizationId}
+            onChange={(event) => {
+              const nextAuthorizationId = event.target.value;
+              setAuthorizationId(nextAuthorizationId);
+              setLineId(
+                ledger.authorizations.find(
+                  (item) => item.id === nextAuthorizationId,
+                )?.lines[0]?.id ?? "",
+              );
+            }}
+          >
+            {ledger.authorizations.map((item) => (
+              <option value={item.id} key={item.id}>
+                {item.child} · {item.service}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          Billing code
+          <select
+            name="lineId"
+            value={lineId || auth?.lines[0]?.id || ""}
+            onChange={(event) => setLineId(event.target.value)}
+          >
+            {auth?.lines.map((line) => (
+              <option value={line.id} key={line.id}>
+                {line.code} · {line.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="form-split">
+          <label>
+            Date
+            <input
+              name="date"
+              type="date"
+              defaultValue={initial?.date ?? today}
+              required
+            />
+          </label>
+          <label>
+            Status
+            <select
+              name="status"
+              value={status}
+              onChange={(event) =>
+                setStatus(event.target.value as SessionStatus)
+              }
+            >
+              {(
+                [
+                  "Scheduled",
+                  "Attended",
+                  "Child cancelled",
+                  "Provider cancelled",
+                ] as SessionStatus[]
+              ).map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+        </div>
+        <div className="form-triple">
+          <label>
+            Scheduled units
+            <input
+              name="scheduledUnits"
+              type="number"
+              min="0"
+              defaultValue={initial?.scheduledUnits ?? 4}
+              required
+            />
+          </label>
+          <label>
+            Attended units
+            <input
+              name="attendedUnits"
+              type="number"
+              min="0"
+              value={status === "Attended" ? attendedUnits : 0}
+              onChange={(event) =>
+                setAttendedUnits(numberValue(event.target.value))
+              }
+              disabled={status !== "Attended"}
+              required={status === "Attended"}
+            />
+          </label>
+          <label>
+            Provider billed units
+            <input
+              name="providerBilledUnits"
+              type="number"
+              min="0"
+              defaultValue={initial?.providerBilledUnits ?? 0}
+            />
+          </label>
+        </div>
+        <label>
+          Note
+          <input
+            name="note"
+            placeholder="Who cancelled, confirmation number, or other detail"
+            defaultValue={initial?.note}
+          />
+        </label>
+        <button className="primary-full" type="submit">
+          {initial ? "Save session changes →" : "Log and check for mismatch →"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
 
-function ClaimModal({ ledger, onClose, onSubmit }: { ledger: Ledger; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { const [sessionId, setSessionId] = useState(ledger.sessions[0]?.id ?? ""); return <Modal title="Add claim or EOB" onClose={onClose} wide><p className="eyebrow">CLAIM RECONCILIATION</p><h2>Add the insurer’s numbers</h2><p>Link the claim to one session so billed units can be compared with attendance.</p><form onSubmit={onSubmit}><label>Linked session<select name="sessionId" value={sessionId} onChange={(event) => setSessionId(event.target.value)}>{ledger.sessions.map((session) => { const auth = ledger.authorizations.find((item) => item.id === session.authorizationId); return <option key={session.id} value={session.id}>{shortDate(session.date)} · {auth?.provider} · {session.status}</option>; })}</select></label><input type="hidden" name="authorizationId" value={ledger.sessions.find((item) => item.id === sessionId)?.authorizationId ?? ""} /><div className="form-triple"><label>Claim number<input name="claimNumber" required /></label><label>Submitted<input name="submittedAt" type="date" defaultValue={today} required /></label><label>Processed<input name="processedAt" type="date" /></label></div><div className="form-triple"><label>Status<select name="status" defaultValue="Pending">{(["Not submitted", "Pending", "Processed", "Denied"] as ClaimStatus[]).map((item) => <option key={item}>{item}</option>)}</select></label><label>Units billed<input name="billedUnits" type="number" min="0" defaultValue="0" /></label><label>Units processed<input name="processedUnits" type="number" min="0" defaultValue="0" /></label></div><div className="form-triple"><label>Provider billed $<input name="providerBilled" type="number" step="0.01" min="0" /></label><label>Insurer allowed $<input name="insurerAllowed" type="number" step="0.01" min="0" /></label><label>Insurer paid $<input name="insurerPaid" type="number" step="0.01" min="0" /></label></div><div className="form-split"><label>Patient responsibility $<input name="parentResponsibility" type="number" step="0.01" min="0" /></label><label>Parent already paid $<input name="parentPaid" type="number" step="0.01" min="0" /></label></div><label>Denial reason<input name="denialReason" /></label><button className="primary-full" type="submit">Add and reconcile →</button></form></Modal>; }
+function ClaimModal({
+  ledger,
+  initial,
+  onClose,
+  onSubmit,
+}: {
+  ledger: Ledger;
+  initial: Claim | null;
+  onClose: () => void;
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+}) {
+  const [sessionId, setSessionId] = useState(
+    initial?.sessionId ?? ledger.sessions[0]?.id ?? "",
+  );
+  return (
+    <Modal
+      title={initial ? "Edit claim" : "Add claim or EOB"}
+      onClose={onClose}
+      wide
+    >
+      <p className="eyebrow">
+        {initial ? "CORRECT CLAIM DETAILS" : "CLAIM RECONCILIATION"}
+      </p>
+      <h2>
+        {initial ? "Update the insurer’s numbers" : "Add the insurer’s numbers"}
+      </h2>
+      <p>
+        Link the claim to one session so billed units can be compared with
+        attendance.
+      </p>
+      <form onSubmit={onSubmit}>
+        <label>
+          Linked session
+          <select
+            name="sessionId"
+            value={sessionId}
+            onChange={(event) => setSessionId(event.target.value)}
+          >
+            {ledger.sessions.map((session) => {
+              const auth = ledger.authorizations.find(
+                (item) => item.id === session.authorizationId,
+              );
+              return (
+                <option key={session.id} value={session.id}>
+                  {shortDate(session.date)} · {auth?.provider} ·{" "}
+                  {session.status}
+                </option>
+              );
+            })}
+          </select>
+        </label>
+        <input
+          type="hidden"
+          name="authorizationId"
+          value={
+            ledger.sessions.find((item) => item.id === sessionId)
+              ?.authorizationId ?? ""
+          }
+        />
+        <div className="form-triple">
+          <label>
+            Claim number
+            <input
+              name="claimNumber"
+              defaultValue={initial?.claimNumber}
+              required
+            />
+          </label>
+          <label>
+            Submitted
+            <input
+              name="submittedAt"
+              type="date"
+              defaultValue={initial?.submittedAt ?? today}
+              required
+            />
+          </label>
+          <label>
+            Processed
+            <input
+              name="processedAt"
+              type="date"
+              defaultValue={initial?.processedAt}
+            />
+          </label>
+        </div>
+        <div className="form-triple">
+          <label>
+            Status
+            <select name="status" defaultValue={initial?.status ?? "Pending"}>
+              {(
+                [
+                  "Not submitted",
+                  "Pending",
+                  "Processed",
+                  "Denied",
+                ] as ClaimStatus[]
+              ).map((item) => (
+                <option key={item}>{item}</option>
+              ))}
+            </select>
+          </label>
+          <label>
+            Units billed
+            <input
+              name="billedUnits"
+              type="number"
+              min="0"
+              defaultValue={initial?.billedUnits ?? 0}
+            />
+          </label>
+          <label>
+            Units processed
+            <input
+              name="processedUnits"
+              type="number"
+              min="0"
+              defaultValue={initial?.processedUnits ?? 0}
+            />
+          </label>
+        </div>
+        <div className="form-triple">
+          <label>
+            Provider billed $
+            <input
+              name="providerBilled"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={initial?.providerBilled}
+            />
+          </label>
+          <label>
+            Insurer allowed $
+            <input
+              name="insurerAllowed"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={initial?.insurerAllowed}
+            />
+          </label>
+          <label>
+            Insurer paid $
+            <input
+              name="insurerPaid"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={initial?.insurerPaid}
+            />
+          </label>
+        </div>
+        <div className="form-split">
+          <label>
+            Patient responsibility $
+            <input
+              name="parentResponsibility"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={initial?.parentResponsibility}
+            />
+          </label>
+          <label>
+            Parent already paid $
+            <input
+              name="parentPaid"
+              type="number"
+              step="0.01"
+              min="0"
+              defaultValue={initial?.parentPaid}
+            />
+          </label>
+        </div>
+        <label>
+          Denial reason
+          <input name="denialReason" defaultValue={initial?.denialReason} />
+        </label>
+        <button className="primary-full" type="submit">
+          {initial ? "Save claim changes →" : "Add and reconcile →"}
+        </button>
+      </form>
+    </Modal>
+  );
+}
 
-function ImportModal({ draft, busy, onClose, onFile, onPaste, onSave }: { draft: ImportDraft | null; busy: boolean; onClose: () => void; onFile: (event: ChangeEvent<HTMLInputElement>) => void; onPaste: (event: FormEvent<HTMLFormElement>) => void; onSave: () => void }) { const fieldLabels: Record<string, string> = { authorizationNumber: "Authorization #", claimNumber: "Claim #", provider: "Provider", child: "Child/patient", serviceDate: "Service date", startDate: "Start date", endDate: "End date", billingCode: "Billing code", approvedUnits: "Approved units", billedUnits: "Billed units", processedUnits: "Processed units", providerBilled: "Provider billed", insurerAllowed: "Allowed amount", insurerPaid: "Insurer paid", parentResponsibility: "Patient responsibility", denialReason: "Denial reason" }; return <Modal title="Import a source document" onClose={onClose} wide><p className="eyebrow">READ LOCALLY ON THIS DEVICE</p><h2>{draft ? `${draft.result.kind} recognized` : "Import an authorization, EOB, or statement"}</h2>{draft ? <><p>Review what CareLedger found before adding it to your ledger. The original text stays attached as evidence.</p><div className="extraction-summary"><div className="confidence"><span>Extraction confidence</span><strong>{Math.round(draft.result.confidence * 100)}%</strong></div><div className="extracted-fields">{Object.entries(draft.result.fields).map(([key, value]) => <label key={key}><span>{fieldLabels[key] || key}</span><strong>{value}</strong></label>)}</div></div><div className="modal-actions"><button className="secondary-button" onClick={onClose}>Cancel</button><button className="primary-button" onClick={onSave}>Add extracted record & reconcile</button></div></> : <><p>Use a text-based PDF, TXT, CSV, or paste copied text. Scanned-image PDFs need OCR before import.</p><label className="drop-zone"><input type="file" accept="application/pdf,text/plain,text/csv,application/json" onChange={onFile} disabled={busy} /><span>▱</span><strong>{busy ? "Reading document…" : "Choose a document"}</strong><small>PDF, TXT, CSV, or JSON · processed locally</small></label><div className="or-divider"><span>or paste document text</span></div><form onSubmit={onPaste}><label>Document text<textarea name="documentText" rows={7} placeholder={'EXPLANATION OF BENEFITS\nClaim Number: CLM-88291\nService Date: 07/11/2026\nCPT: 97153\nUnits Billed: 16\nUnits Processed: 16\nProvider Billed: $1,200\nInsurer Paid: $540\nPatient Responsibility: $180'} required /></label><button className="primary-full" type="submit">Extract fields →</button></form></>}</Modal>; }
+function ImportModal({
+  draft,
+  busy,
+  onClose,
+  onFile,
+  onPaste,
+  onSave,
+  onFieldChange,
+  ledger,
+}: {
+  draft: ImportDraft | null;
+  busy: boolean;
+  onClose: () => void;
+  onFile: (event: ChangeEvent<HTMLInputElement>) => void;
+  onPaste: (event: FormEvent<HTMLFormElement>) => void;
+  onSave: () => void;
+  onFieldChange: (field: string, value: string) => void;
+  ledger: Ledger;
+}) {
+  const fieldLabels: Record<string, string> = {
+    authorizationNumber: "Authorization #",
+    claimNumber: "Claim #",
+    provider: "Provider",
+    child: "Child/patient",
+    serviceDate: "Service date",
+    startDate: "Start date",
+    endDate: "End date",
+    billingCode: "Billing code",
+    approvedUnits: "Approved units",
+    billedUnits: "Billed units",
+    processedUnits: "Processed units",
+    providerBilled: "Provider billed",
+    insurerAllowed: "Allowed amount",
+    insurerPaid: "Insurer paid",
+    parentResponsibility: "Patient responsibility",
+    denialReason: "Denial reason",
+  };
+  const target = draft ? findImportTarget(ledger, draft) : null;
+  const duplicateClaim = Boolean(
+    draft?.result.kind === "EOB" &&
+      draft.result.fields.claimNumber &&
+      hasClaimLine(
+        ledger,
+        draft.result.fields.claimNumber,
+        target?.session?.id,
+      ),
+  );
+  const exactMatch = Boolean(
+    draft?.result.kind === "Authorization" ||
+      (draft?.result.kind === "EOB" &&
+        target?.authorization &&
+        target.session) ||
+      (draft?.result.kind === "Provider statement" &&
+        target?.authorization &&
+        target.line),
+  );
+  const matchMessage = !draft
+    ? ""
+    : duplicateClaim
+      ? `This ${draft.result.fields.claimNumber} service line for ${shortDate(target?.session?.date)} already exists.`
+      : draft.result.kind === "Authorization"
+        ? "A new authorization will be created from these reviewed fields."
+        : draft.result.kind === "EOB" && target?.authorization && target.session
+          ? `Will reconcile with ${target.authorization.child} · ${target.authorization.provider} · ${shortDate(target.session.date)}.`
+          : draft.result.kind === "Provider statement" &&
+              target?.authorization &&
+              target.line
+            ? `Will update CPT ${target.line.code} for ${target.authorization.child} · ${target.authorization.provider}.`
+            : "No exact coverage and service-date match was found. The source will be saved without changing claims or unit balances.";
+  return (
+    <Modal title="Import a source document" onClose={onClose} wide>
+      <p className="eyebrow">READ LOCALLY ON THIS DEVICE</p>
+      <h2>
+        {draft
+          ? `${draft.result.kind} recognized`
+          : "Import an authorization, EOB, or statement"}
+      </h2>
+      {draft ? (
+        <>
+          <p>
+            Check and correct every field before saving. The original text stays
+            attached as evidence.
+          </p>
+          <div className="extraction-summary">
+            <div className="confidence">
+              <span>Fields detected</span>
+              <strong>{Object.keys(draft.result.fields).length}</strong>
+            </div>
+            <div className="extracted-fields">
+              {Object.entries(draft.result.fields).map(([key, value]) => (
+                <label key={key}>
+                  <span>{fieldLabels[key] || key}</span>
+                  <input
+                    value={value}
+                    onChange={(event) => onFieldChange(key, event.target.value)}
+                    aria-label={fieldLabels[key] || key}
+                  />
+                </label>
+              ))}
+            </div>
+          </div>
+          <div
+            className={
+              exactMatch && !duplicateClaim
+                ? "match-preview"
+                : "match-preview warning"
+            }
+          >
+            <strong>
+              {exactMatch && !duplicateClaim
+                ? "Ready to match"
+                : "Review needed"}
+            </strong>
+            <span>{matchMessage}</span>
+          </div>
+          <div className="modal-actions">
+            <button className="secondary-button" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              className="primary-button"
+              onClick={onSave}
+              disabled={duplicateClaim}
+            >
+              {exactMatch ? "Save reviewed record" : "Save source only"}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          <p>
+            Use a text-based PDF, TXT, CSV, or paste copied text. Scanned-image
+            PDFs need OCR before import.
+          </p>
+          <label className="drop-zone">
+            <input
+              type="file"
+              accept="application/pdf,text/plain,text/csv,application/json"
+              onChange={onFile}
+              disabled={busy}
+            />
+            <span>▱</span>
+            <strong>{busy ? "Reading document…" : "Choose a document"}</strong>
+            <small>PDF, TXT, CSV, or JSON · processed locally</small>
+          </label>
+          <div className="or-divider">
+            <span>or paste document text</span>
+          </div>
+          <form onSubmit={onPaste}>
+            <label>
+              Document text
+              <textarea
+                name="documentText"
+                rows={7}
+                placeholder={
+                  "EXPLANATION OF BENEFITS\nClaim Number: CLM-88291\nService Date: 07/11/2026\nCPT: 97153\nUnits Billed: 16\nUnits Processed: 16\nProvider Billed: $1,200\nInsurer Paid: $540\nPatient Responsibility: $180"
+                }
+                required
+              />
+            </label>
+            <button className="primary-full" type="submit">
+              Extract fields →
+            </button>
+          </form>
+        </>
+      )}
+    </Modal>
+  );
+}
 
-function IssueDrawer({ issue, ledger, onClose, onCopy, onDownload }: { issue: Issue; ledger: Ledger; onClose: () => void; onCopy: () => void; onDownload: () => void }) { const packet = buildEvidencePacket(issue, ledger); const [tab, setTab] = useState<"summary" | "script">("summary"); const callScript = packet.split("CALL SCRIPT\n")[1]?.split("\n\nREQUESTED RESOLUTION")[0] ?? ""; return <div className="drawer-backdrop" onMouseDown={onClose}><aside className="issue-drawer" role="dialog" aria-modal="true" aria-label={issue.title} onMouseDown={(event) => event.stopPropagation()}><button className="close" onClick={onClose}>×</button><span className={`issue-badge ${issue.severity}`}>{issue.severity} · {issue.category}</span><h2>{issue.title}</h2><p>{issue.detail}</p><div className="drawer-tabs"><button className={tab === "summary" ? "active" : ""} onClick={() => setTab("summary")}>Evidence summary</button><button className={tab === "script" ? "active" : ""} onClick={() => setTab("script")}>Call script</button></div>{tab === "summary" ? <pre>{packet.split("CALL SCRIPT")[0]}</pre> : <div className="call-script"><span>Say this to the provider or insurer</span><p>{callScript}</p></div>}<div className="drawer-next"><span>Requested resolution</span><strong>{issue.action}</strong></div><div className="drawer-actions"><button className="secondary-button" onClick={onCopy}>Copy call script</button><button className="primary-button" onClick={onDownload}>Download correction packet</button></div><small className="disclaimer">Parent-maintained record. Verify figures against the insurer EOB and provider statement.</small></aside></div>; }
+function IssueDrawer({
+  issue,
+  ledger,
+  onClose,
+  onCopy,
+  onDownload,
+  onResolve,
+}: {
+  issue: Issue;
+  ledger: Ledger;
+  onClose: () => void;
+  onCopy: () => void;
+  onDownload: () => void;
+  onResolve: (note: string) => void;
+}) {
+  const packet = buildEvidencePacket(issue, ledger);
+  const [tab, setTab] = useState<"summary" | "script">("summary");
+  const [resolutionNote, setResolutionNote] = useState("");
+  const callScript =
+    packet.split("CALL SCRIPT\n")[1]?.split("\n\nREQUESTED RESOLUTION")[0] ??
+    "";
+  return (
+    <div className="drawer-backdrop" onMouseDown={onClose}>
+      <aside
+        className="issue-drawer"
+        role="dialog"
+        aria-modal="true"
+        aria-label={issue.title}
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <button className="close" onClick={onClose}>
+          ×
+        </button>
+        <span className={`issue-badge ${issue.severity}`}>
+          {issue.severity} · {issue.category}
+        </span>
+        <h2>{issue.title}</h2>
+        <p>{issue.detail}</p>
+        <div className="drawer-tabs">
+          <button
+            className={tab === "summary" ? "active" : ""}
+            onClick={() => setTab("summary")}
+          >
+            Evidence summary
+          </button>
+          <button
+            className={tab === "script" ? "active" : ""}
+            onClick={() => setTab("script")}
+          >
+            Call script
+          </button>
+        </div>
+        {tab === "summary" ? (
+          <pre>{packet.split("CALL SCRIPT")[0]}</pre>
+        ) : (
+          <div className="call-script">
+            <span>Say this to the provider or insurer</span>
+            <p>{callScript}</p>
+          </div>
+        )}
+        <div className="drawer-next">
+          <span>Requested resolution</span>
+          <strong>{issue.action}</strong>
+        </div>
+        <div className="drawer-actions">
+          <button className="secondary-button" onClick={onCopy}>
+            Copy call script
+          </button>
+          <button className="primary-button" onClick={onDownload}>
+            Download correction packet
+          </button>
+        </div>
+        <label className="resolution-note">
+          Resolution note (optional)
+          <input
+            value={resolutionNote}
+            onChange={(event) => setResolutionNote(event.target.value)}
+            placeholder="Correction reference, call date, or outcome"
+          />
+        </label>
+        <button
+          className="resolve-button"
+          onClick={() => onResolve(resolutionNote)}
+        >
+          ✓ Mark this case resolved
+        </button>
+        <small className="disclaimer">
+          Parent-maintained record. Verify figures against the insurer EOB and
+          provider statement.
+        </small>
+      </aside>
+    </div>
+  );
+}
 
-function SettingsModal({ onClose, onExport, onRestore, onReset }: { onClose: () => void; onExport: () => void; onRestore: () => void; onReset: () => void }) { return <Modal title="Local workspace settings" onClose={onClose}><p className="eyebrow">PRIVATE WORKSPACE</p><h2>Your records stay with you</h2><p>CareLedger stores records in this browser. Back up before clearing browser data or changing devices.</p><div className="stack-actions"><button className="secondary-button" onClick={onExport}>Download private backup</button><button className="secondary-button" onClick={onRestore}>Restore backup</button><button className="danger-button" onClick={onReset}>Restore sample workspace</button></div></Modal>; }
-function PricingModal({ plan, onClose, onChoose }: { plan: string; onClose: () => void; onChoose: (plan: string) => void }) { return <Modal title="Mock checkout" onClose={onClose} wide><p className="eyebrow">NO REAL PAYMENT</p><h2>Choose your coverage protection</h2><p>Pricing is being tested. This checkout only saves a plan selection locally.</p><div className="pricing-grid"><article><span>Personal</span><strong>$9<small>/month</small></strong><p>One child, active authorization monitoring, and discrepancy packets.</p><button onClick={() => onChoose("Personal")}>{plan === "Personal" ? "Selected" : "Choose in mock checkout"}</button></article><article className="featured"><b>MOST USEFUL</b><span>Family</span><strong>$15<small>/month</small></strong><p>Multiple children, unlimited service lines, claim reminders, and exportable evidence.</p><button onClick={() => onChoose("Family")}>{plan === "Family" ? "Selected" : "Choose in mock checkout"}</button></article></div></Modal>; }
+function SettingsModal({
+  onClose,
+  onExport,
+  onRestore,
+  onReset,
+  resolutions,
+  resolvedCount,
+  onReopenResolved,
+}: {
+  onClose: () => void;
+  onExport: () => void;
+  onRestore: () => void;
+  onReset: () => void;
+  resolutions: NonNullable<Ledger["resolutions"]>;
+  resolvedCount: number;
+  onReopenResolved: () => void;
+}) {
+  return (
+    <Modal title="Local workspace settings" onClose={onClose}>
+      <p className="eyebrow">PRIVATE WORKSPACE</p>
+      <h2>Your records stay with you</h2>
+      <p>
+        CareLedger stores records in this browser. Back up before clearing
+        browser data or changing devices.
+      </p>
+      <div className="stack-actions">
+        <button className="secondary-button" onClick={onExport}>
+          Download private backup
+        </button>
+        <button className="secondary-button" onClick={onRestore}>
+          Restore backup
+        </button>
+        {resolutions.length > 0 && (
+          <div className="resolution-history">
+            <span>RESOLVED CASES</span>
+            {resolutions
+              .slice()
+              .reverse()
+              .map((resolution) => (
+                <article key={`${resolution.issueId}-${resolution.resolvedAt}`}>
+                  <strong>{resolution.title}</strong>
+                  <small>
+                    {shortDate(resolution.resolvedAt.slice(0, 10))}
+                    {resolution.note ? ` · ${resolution.note}` : ""}
+                  </small>
+                </article>
+              ))}
+          </div>
+        )}
+        {resolvedCount > 0 && (
+          <button className="secondary-button" onClick={onReopenResolved}>
+            Reopen {resolvedCount} resolved case{resolvedCount === 1 ? "" : "s"}
+          </button>
+        )}
+        <button className="danger-button" onClick={onReset}>
+          Restore sample workspace
+        </button>
+      </div>
+    </Modal>
+  );
+}
+function PricingModal({
+  plan,
+  onClose,
+  onChoose,
+}: {
+  plan: string;
+  onClose: () => void;
+  onChoose: (plan: string) => void;
+}) {
+  return (
+    <Modal title="Mock checkout" onClose={onClose} wide>
+      <p className="eyebrow">NO REAL PAYMENT</p>
+      <h2>Choose your coverage protection</h2>
+      <p>
+        Pricing is being tested. This checkout only saves a plan selection
+        locally.
+      </p>
+      <div className="pricing-grid">
+        <article>
+          <span>Personal</span>
+          <strong>
+            $9<small>/month</small>
+          </strong>
+          <p>
+            One child, active authorization monitoring, and discrepancy packets.
+          </p>
+          <button onClick={() => onChoose("Personal")}>
+            {plan === "Personal" ? "Selected" : "Choose in mock checkout"}
+          </button>
+        </article>
+        <article className="featured">
+          <b>MOST USEFUL</b>
+          <span>Family</span>
+          <strong>
+            $15<small>/month</small>
+          </strong>
+          <p>
+            Multiple children, unlimited service lines, claim reminders, and
+            exportable evidence.
+          </p>
+          <button onClick={() => onChoose("Family")}>
+            {plan === "Family" ? "Selected" : "Choose in mock checkout"}
+          </button>
+        </article>
+      </div>
+    </Modal>
+  );
+}

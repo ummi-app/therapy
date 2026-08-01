@@ -15,20 +15,24 @@ npm run dev
 Then open [http://localhost:3000](http://localhost:3000).
 
 To exercise document extraction immediately, import one of the files in
-`examples/careledger-samples/` from the Evidence screen.
+`examples/careledger-samples/` from the Documents screen.
 
 ## Implemented workflows
 
 - Track authorization units separately by billing or CPT code.
+- Correct existing coverage, session, and claim records without rebuilding
+  linked history.
 - Log scheduled, attended, child-cancelled, and provider-cancelled sessions.
 - Compare scheduled, attended, provider-billed, insurer-processed, and
   parent-paid units for every session.
 - Import text-based PDF, TXT, CSV, or pasted authorization/EOB/statement text;
-  extract key fields and create the corresponding local record.
+  review and edit extracted fields, then reconcile only when billing code and
+  service date match an existing record exactly.
 - Detect cancelled-session billing, excess billed units, provider-ledger
   mismatches, denied and stale claims, and overpayments.
 - Forecast unit runout and authorization renewal windows from recent usage.
 - Generate a call script, evidence summary, and correction or appeal request.
+- Close resolved discrepancy cases and reopen them from workspace settings.
 - Surface in-app reminders when claims stall or renewals approach.
 - Export and restore a private JSON backup and try the mock subscription flow.
 
