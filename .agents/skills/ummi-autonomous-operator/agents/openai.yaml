@@ -1,0 +1,4 @@
+interface:
+  display_name: "Ummi Autonomous Operator"
+  short_description: "Run Ummi's reviewed hourly launch pipeline"
+  default_prompt: "Use $ummi-autonomous-operator to run the next reviewed Ummi hourly delivery cycle."
