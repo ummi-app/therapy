@@ -15,13 +15,13 @@ async function render() {
   );
 }
 
-test("server-renders the discrepancy-first CareLedger workspace", async () => {
+test("server-renders the discrepancy-first Ummi workspace", async () => {
   const response = await render();
   assert.equal(response.status, 200);
   const html = await response.text();
   assert.match(
     html,
-    /<title>CareLedger — Catch therapy billing mistakes early<\/title>/i,
+    /<title>Ummi — Catch therapy billing mistakes early<\/title>/i,
   );
   assert.match(html, /Catch problems before care stops/i);
   assert.match(html, /scheduled, attended, billed, processed, and paid/i);
@@ -29,6 +29,25 @@ test("server-renders the discrepancy-first CareLedger workspace", async () => {
   assert.match(html, /When units may run out/i);
   assert.match(html, /You’re exploring a sample family workspace/i);
   assert.match(html, /Session records checked/i);
+});
+
+test("does not expose app monetization controls or legacy identity", async () => {
+  const [page, ledger, styles] = await Promise.all([
+    readFile(new URL("../app/page.tsx", import.meta.url), "utf8"),
+    readFile(new URL("../lib/ledger.ts", import.meta.url), "utf8"),
+    readFile(new URL("../app/globals.css", import.meta.url), "utf8"),
+  ]);
+  assert.match(page, /ummi-reconciliation-v1/);
+  assert.match(page, /migrateLedgerStorage\(window\.localStorage\)/);
+  assert.match(page, /const next = normalizeLedger\(candidate\)/);
+  assert.match(ledger, /UMMI EVIDENCE SUMMARY/);
+  const forbidden = new RegExp(
+    ["care" + "ledger", "mock check" + "out", "pric" + "ing-grid", "up" + "grade-card", "subscri" + "ption"].join("|"),
+    "i",
+  );
+  for (const source of [page, ledger, styles]) {
+    assert.doesNotMatch(source, forbidden);
+  }
 });
 
 test("includes all eight required product workflows", async () => {

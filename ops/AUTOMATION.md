@@ -7,7 +7,7 @@
 | Task repository cwd | `/Users/rohan/repos/therapy-coverage-ledger` |
 | Cadence | Hourly at minute `5`, one run at a time |
 | Automation ID | `ummi-hourly-product-builder` |
-| Status | `ACTIVE` (tracked); the external automation remains `PAUSED` until this activation-state diff is independently approved, committed, and pushed, then activate it |
+| Status | `ACTIVE` (tracked and externally verified after reviewed activation commit `db9aa4ec0b74227f609d104f2f70cf77aa5aea46`) |
 | Persisted state | This file, `ops/CURSOR.md`, `ops/BACKLOG.md`, and `ops/RUN_LOG.md` in the pinned repository |
 | Terminal marker | `not-complete`; set `complete:<release commit>` only after the mission stop condition |
 

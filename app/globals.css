@@ -164,33 +164,6 @@ button {
   display: grid;
   gap: 15px;
 }
-.upgrade-card {
-  border: 0;
-  border-radius: 12px;
-  background: var(--navy);
-  color: #fff;
-  padding: 12px;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  text-align: left;
-}
-.upgrade-card > span {
-  font-size: 18px;
-  color: #beb6ff;
-}
-.upgrade-card strong,
-.upgrade-card small {
-  display: block;
-}
-.upgrade-card strong {
-  font-size: 11px;
-}
-.upgrade-card small {
-  font-size: 9px;
-  color: #b9bbca;
-  margin-top: 3px;
-}
 .profile {
   border: 0;
   background: none;
@@ -1387,64 +1360,6 @@ button {
   display: grid;
   gap: 8px;
 }
-.pricing-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 11px;
-}
-.pricing-grid article {
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  padding: 17px;
-  position: relative;
-}
-.pricing-grid article.featured {
-  background: #f6f4ff;
-  border-color: #cfc9fc;
-}
-.pricing-grid article > b {
-  position: absolute;
-  top: 11px;
-  right: 11px;
-  font-size: 7px;
-  color: var(--violet);
-  background: #fff;
-  padding: 4px 6px;
-  border-radius: 99px;
-}
-.pricing-grid article > span {
-  font-size: 10px;
-  font-weight: 900;
-}
-.pricing-grid article > strong {
-  display: block;
-  font-size: 25px;
-  margin: 10px 0;
-}
-.pricing-grid article > strong small {
-  font-size: 9px;
-  color: #898c9c;
-}
-.pricing-grid article > p {
-  font-size: 9px;
-  color: #7e8293;
-  line-height: 1.45;
-  min-height: 40px;
-}
-.pricing-grid article > button {
-  width: 100%;
-  border: 0;
-  background: var(--violet-soft);
-  color: var(--violet);
-  border-radius: 8px;
-  padding: 9px;
-  font-size: 8px;
-  font-weight: 900;
-}
-.pricing-grid article.featured > button {
-  background: var(--violet);
-  color: #fff;
-}
 .toast {
   position: fixed;
   right: 22px;
@@ -1507,11 +1422,9 @@ button {
   .sidebar-note {
     display: none;
   }
-  .upgrade-card > div,
   .profile > span:not(.profile-avatar) {
     display: none;
   }
-  .upgrade-card,
   .profile {
     justify-content: center;
   }
@@ -1613,8 +1526,7 @@ button {
     grid-template-columns: 1fr 1fr;
   }
   .form-split,
-  .form-triple,
-  .pricing-grid {
+  .form-triple {
     grid-template-columns: 1fr;
   }
   .document-row {

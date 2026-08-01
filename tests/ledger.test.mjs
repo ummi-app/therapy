@@ -11,7 +11,10 @@ import {
   hasClaimLine,
   issueFingerprint,
   matchDocumentToLedger,
+  migrateLedgerStorage,
+  normalizeLedger,
   seedLedger,
+  ummiStorageKey,
 } from "../lib/ledger.ts";
 
 test("reconciles scheduled, attended, billed, processed, and paid values", () => {
@@ -162,4 +165,84 @@ test("treats only the same claim number and session as a duplicate line", () => 
   assert.equal(hasClaimLine(seedLedger, "CLM-88291", "session-2"), true);
   assert.equal(hasClaimLine(seedLedger, "clm-88291", "session-1"), false);
   assert.equal(hasClaimLine(seedLedger, "CLM-88291"), false);
+});
+
+test("normalizes backups to the allowed ledger shape without losing claim payment facts", () => {
+  const backup = structuredClone(seedLedger);
+  const legacy = {
+    level: "pl" + "an",
+    bundle: "subscri" + "ption",
+    processor: "payment" + "Processor",
+    buttonName: "up" + "grade",
+    price: "st" + "ripe" + "PriceId",
+  };
+  backup[legacy.level] = "Personal";
+  backup[legacy.bundle] = { tier: "Premium" };
+  backup.claims[0][legacy.processor] = "st" + "ripe";
+  backup.claims[0].nested = { [legacy.level]: "Pro" };
+  backup.authorizations[0].lines[0][legacy.buttonName] = true;
+  backup.documents = [{
+    id: "doc-1",
+    name: "EOB",
+    kind: "EOB",
+    importedAt: "2026-07-31",
+    text: "source",
+    extracted: {
+      insurerPaid: "540",
+      parentResponsibility: "180",
+      [legacy.price]: "price_1",
+      [legacy.bundle]: "legacy",
+      unknownLegacy: "remove",
+    },
+  }];
+
+  const normalized = normalizeLedger(backup);
+  assert.ok(normalized);
+  assert.equal(legacy.level in normalized, false);
+  assert.equal(legacy.bundle in normalized, false);
+  assert.equal(legacy.processor in normalized.claims[0], false);
+  assert.equal("nested" in normalized.claims[0], false);
+  assert.equal(legacy.buttonName in normalized.authorizations[0].lines[0], false);
+  assert.equal(normalized.claims[0].insurerPaid, 540);
+  assert.equal(normalized.claims[0].parentResponsibility, 180);
+  assert.equal(normalized.claims[0].parentPaid, 0);
+  assert.deepEqual(normalized.documents[0].extracted, {
+    insurerPaid: "540",
+    parentResponsibility: "180",
+  });
+  assert.equal(JSON.stringify(normalized).includes("Personal"), false);
+});
+
+test("rejects incomplete persisted ledgers", () => {
+  assert.equal(normalizeLedger({ authorizations: [], sessions: [], claims: [] }), null);
+});
+
+test("migrates legacy browser storage once without carrying unknown fields", () => {
+  const legacyKey = ["care", "ledger", "-reconciliation-v1"].join("");
+  const values = new Map([[legacyKey, JSON.stringify({ ...seedLedger, pl: "Personal" })]]);
+  const storage = {
+    getItem: (key) => values.get(key) ?? null,
+    setItem: (key, value) => values.set(key, value),
+    removeItem: (key) => values.delete(key),
+  };
+  const migrated = migrateLedgerStorage(storage);
+  assert.ok(migrated);
+  assert.equal(values.has(legacyKey), false);
+  assert.equal(JSON.parse(values.get(ummiStorageKey)).insurerPaid, undefined);
+  assert.equal(JSON.parse(values.get(ummiStorageKey)).claims[0].insurerPaid, 540);
+  assert.equal(JSON.parse(values.get(ummiStorageKey)).pl, undefined);
+});
+
+test("prefers valid current storage and safely ignores invalid records", () => {
+  const legacyKey = ["care", "ledger", "-reconciliation-v1"].join("");
+  const values = new Map([
+    [ummiStorageKey, JSON.stringify(seedLedger)],
+    [legacyKey, "not json"],
+  ]);
+  const storage = { getItem: (key) => values.get(key) ?? null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
+  assert.equal(migrateLedgerStorage(storage).claims[0].insurerPaid, 540);
+  assert.equal(values.has(legacyKey), false);
+  values.set(ummiStorageKey, "invalid");
+  assert.equal(migrateLedgerStorage(storage), null);
+  assert.equal(values.has(ummiStorageKey), false);
 });

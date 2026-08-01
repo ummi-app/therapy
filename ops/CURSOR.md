@@ -1,17 +1,23 @@
 # Hourly execution cursor
 
-Current phase: operations scaffold committed and pushed; activation-state
-reconciliation staged; `L-01` (not started)
+Current phase: `L-01` active and awaiting independent commit review. After its
+reviewed commit/push, the next deterministic action is an ops-only `L-01`
+result reconciliation/closure; only that separate reviewed closure may mark
+`L-01` done and select `L-02` data-flow inventory.
 
-Last reconciled run: `bootstrap-automation`. Its externally captured final
-staged-tree reference `a116dca406a632280e51ba01ba65383872c4f50a` and approved
-diff SHA-256 `9d4d1f139659e1daa1c556a039998bfb4981f4229574e16cc67a8d5fe1dae24b`
-map to reviewed, pushed `main` commit
-`d2e0574c38b30516c53aa2034c1d50c761cebd31`. The tracked contract is now
-`ACTIVE`, but the external `ummi-hourly-product-builder` remains `PAUSED`
-until this activation-state diff is independently approved, committed, and
-pushed. Its deterministic next action is the smallest `L-01` identity and
-free-only residue purge slice.
+Last reconciled runs: the bootstrap final staged-tree reference
+`a116dca406a632280e51ba01ba65383872c4f50a` and approved diff SHA-256
+`9d4d1f139659e1daa1c556a039998bfb4981f4229574e16cc67a8d5fe1dae24b` map to
+reviewed, pushed `main` commit `d2e0574c38b30516c53aa2034c1d50c761cebd31`.
+The activation final staged-tree reference
+`62f84d0e223b712d2cd93e9202169309667e0412` and approved diff SHA-256
+`1138c2ae6509dbe53969ef755c8fa3253df09e1424953cbf4000ef32b3cab924` were
+independently approved by `review_ummi_activation`, committed/pushed as
+`db9aa4ec0b74227f609d104f2f70cf77aa5aea46`, and then externally verified
+`ACTIVE`. `manual-l01-20260801T193600Z` completed the repository and local
+production-artifact identity/free-only purge with named verifier evidence. Its
+deterministic next action after this reviewed commit/push is the bounded L-01
+result reconciliation/closure, not L-02 directly.
 
 At the start of each run, reconcile this cursor against `ops/BACKLOG.md` and the repository. The source of truth is the backlog plus run-log evidence; update this file to the selected task/subtask, commit hash when applicable, blocking prerequisite, and next deterministic action before the run ends.
 

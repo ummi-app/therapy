@@ -1,6 +1,6 @@
-# CareLedger
+# Ummi
 
-CareLedger is a device-local pediatric therapy authorization and billing
+Ummi is a device-local pediatric therapy authorization and billing
 reconciliation MVP. It helps a parent catch unit-count, attendance, claim, and
 payment discrepancies before care is interrupted or a balance becomes a
 surprise bill.
@@ -15,7 +15,7 @@ npm run dev
 Then open [http://localhost:3000](http://localhost:3000).
 
 To exercise document extraction immediately, import one of the files in
-`examples/careledger-samples/` from the Documents screen.
+`examples/ummi-samples/` from the Documents screen.
 
 ## Implemented workflows
 
@@ -34,12 +34,14 @@ To exercise document extraction immediately, import one of the files in
 - Generate a call script, evidence summary, and correction or appeal request.
 - Close resolved discrepancy cases and reopen them from workspace settings.
 - Surface in-app reminders when claims stall or renewals approach.
-- Export and restore a private JSON backup and try the mock subscription flow.
+- Export and restore a private JSON backup.
 
 ## Privacy and MVP boundaries
 
 Records and imported document text stay in this browser on this device. The app
 does not upload documents, connect to an insurer or provider, submit claims,
-send notifications outside the app, provide medical or legal advice, or take a
-real payment. Scanned-image PDFs require OCR before import. Verify every number
-against the original authorization, EOB, and provider statement.
+send notifications outside the app, or provide medical or legal advice. Ummi is
+free: it has no paid offering. Claim and EOB payment facts are reconciliation
+data, not a charge by Ummi. Scanned-image PDFs require OCR before import.
+Verify every number against the original authorization, EOB, and provider
+statement.

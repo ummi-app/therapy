@@ -68,3 +68,20 @@ Commit intent: activation-state reconciliation on `main`; capture this exact sta
 Independent deploy review: none; no deploy
 Deploy: none
 Status/next: tracked status is `ACTIVE`; external `ummi-hourly-product-builder` remains `PAUSED` until this exact diff is independently approved, committed, and pushed, then activate it. Next deterministic product action: smallest `L-01` purge slice.
+
+## 2026-08-01T19:36:00Z — manual-l01-20260801T193600Z — L-01 identity and free-only purge
+
+Lock: acquired by root-managed manual run `manual-l01-20260801T193600Z`; not released by this implementer; task cwd `/Users/rohan/repos/therapy-coverage-ledger`
+Prior result: `main` and `origin/main` both verified at `db9aa4ec0b74227f609d104f2f70cf77aa5aea46` before edits; that activation commit maps to tree `62f84d0e223b712d2cd93e9202169309667e0412`, diff `1138c2ae6509dbe53969ef755c8fa3253df09e1424953cbf4000ef32b3cab924`, reviewer `review_ummi_activation`, and externally verified `ACTIVE` status
+Selection: cursor rule 2 selected the lowest-numbered queued item, `L-01`; this is its complete bounded source/build purge slice
+Work: renamed all runtime/product identity and download/storage identifiers to Ummi; renamed `examples/careledger-samples` to `examples/ummi-samples`; replaced the legacy-name social image and aligned the favicon to Ummi; removed the mock pricing/upgrade/plan/checkout modal, state, controls, and styles; normalized local-storage hydration, backup restore, backup export, and one-time legacy-key migration to the exact allowed Ledger shape, stripping legacy and unknown nested fields; allowlisted supported extracted document fields; clarified that claim/EOB payment facts are reconciliation data; added deterministic index-blob tracked-source and local-built-artifact free-only scans, approved brand-asset hash/dimension checks, exact PDF-worker exclusions, and staged-index/adversarial regression coverage
+Intended-file allowlist: `.gitignore`, `AGENTS.md`, `README.md`, `app/globals.css`, `app/layout.tsx`, `app/page.tsx`, `examples/careledger-samples/{authorization-letter,eob,provider-statement}.txt` (rename only), `examples/ummi-samples/{authorization-letter,eob,provider-statement}.txt`, `lib/ledger.ts`, `ops/{AUTOMATION,BACKLOG,CURSOR,DECISIONS,MISSION,RUN_LOG,SHIP_CRITERIA}.md`, `package.json`, `package-lock.json`, `public/{favicon.svg,og.png}`, `scripts/verify-free-only.mjs`, and `tests/{free-only,ledger,rendered-html}.test.mjs`
+Blocker: none
+Implementer review: inspected the explicit allowlist and whole diff; retained insurer-paid, family-responsibility, and parent-paid claim facts while removing only Ummi monetization surfaces
+Independent commit review: pending separate reviewer approval of the final staged tree
+Validation: final command output is recorded from the exact staged tree before review; it includes lint, production build/test, index-blob source and local-artifact verifiers, missing-artifact rejection, staged-index-vs-clean-working-tree regression, and diff checks. The verifier output names its deterministic scanned-file count and exact exclusions rather than relying on stale hardcoded counts. `npm run typecheck`, `npm run test:unit`, `npm run test:integration`, `npm run test:rls`, and `npm run test:e2e` remain unavailable and continue as an L-08 pre-production blocker; no deploy attempted.
+Secret/public scan: prior reachable-history public-repository scan remains recorded in the bootstrap run; this slice added no secret-bearing configuration. Exact staged/full-tree secret scans remain required by the commit reviewer before commit.
+Commit intent: `feat: rename product to Ummi and remove monetization surfaces` on `main`; final staged-tree reference and approval pending external independent review
+Independent deploy review: none; no deploy
+Deploy: none; L-10 must repeat the verifier against the deployed production artifact
+Status/next: L-01 remains active until this exact final tree receives independent approval and is committed/pushed. After that, create a separately reviewed ops-only L-01 result reconciliation/closure; only then mark it done and select L-02.

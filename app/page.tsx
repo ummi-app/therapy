@@ -28,6 +28,8 @@ import {
   hasClaimLine,
   issueFingerprint,
   matchDocumentToLedger,
+  migrateLedgerStorage,
+  normalizeLedger,
   seedLedger,
 } from "../lib/ledger";
 
@@ -38,7 +40,6 @@ type ModalName =
   | "claim"
   | "import"
   | "settings"
-  | "pricing"
   | null;
 type ImportDraft = { name: string; text: string; result: ExtractedDocument };
 type Confirmation = {
@@ -49,7 +50,7 @@ type Confirmation = {
   onConfirm: () => void;
 };
 
-const storageKey = "careledger-reconciliation-v1";
+const storageKey = "ummi-reconciliation-v1";
 const today = new Date().toISOString().slice(0, 10);
 const views: View[] = [
   "Watchlist",
@@ -125,16 +126,8 @@ export default function Home() {
   const backupRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem(storageKey);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as Ledger;
-        if (parsed.authorizations && parsed.sessions && parsed.claims)
-          queueMicrotask(() => setLedger(parsed));
-      } catch {
-        window.localStorage.removeItem(storageKey);
-      }
-    }
+    const migrated = migrateLedgerStorage(window.localStorage);
+    if (migrated) queueMicrotask(() => setLedger(migrated));
     queueMicrotask(() => setHydrated(true));
   }, []);
 
@@ -537,16 +530,17 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `careledger-evidence-${issue.id}.txt`;
+    anchor.download = `ummi-evidence-${issue.id}.txt`;
     anchor.click();
     URL.revokeObjectURL(url);
     toast("Evidence and correction packet downloaded.");
   }
   function exportBackup() {
+    const exportable = normalizeLedger(ledger) ?? copy(emptyLedger);
     const blob = new Blob(
       [
         JSON.stringify(
-          { exportedAt: new Date().toISOString(), ledger },
+          { exportedAt: new Date().toISOString(), ledger: exportable },
           null,
           2,
         ),
@@ -556,7 +550,7 @@ export default function Home() {
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `careledger-private-backup-${today}.json`;
+    anchor.download = `ummi-private-backup-${today}.json`;
     anchor.click();
     URL.revokeObjectURL(url);
     toast("Private backup downloaded.");
@@ -566,10 +560,13 @@ export default function Home() {
     if (!file) return;
     file.text().then((text) => {
       try {
-        const parsed = JSON.parse(text) as Ledger | { ledger: Ledger };
-        const next = "ledger" in parsed ? parsed.ledger : parsed;
-        if (!next.sessions || !next.claims || !next.authorizations)
-          throw new Error();
+        const parsed: unknown = JSON.parse(text);
+        const candidate =
+          parsed && typeof parsed === "object" && "ledger" in parsed
+            ? (parsed as { ledger: unknown }).ledger
+            : parsed;
+        const next = normalizeLedger(candidate);
+        if (!next) throw new Error("Invalid backup ledger");
         setLedger(next);
         toast("Workspace restored.");
       } catch {
@@ -723,18 +720,12 @@ export default function Home() {
       },
     });
   }
-  function choosePlan(plan: string) {
-    updateLedger((current) => ({ ...current, plan }));
-    setModal(null);
-    toast(`${plan} selected in this mock checkout.`);
-  }
-
   return (
     <main className="app-shell">
       <aside className="sidebar">
         <button className="brand" onClick={() => setView("Watchlist")}>
-          <span className="brand-mark">C</span>
-          <span>careledger</span>
+          <span className="brand-mark">U</span>
+          <span>ummi</span>
         </button>
         <div className="workspace-badge">
           <span>ER</span>
@@ -774,17 +765,6 @@ export default function Home() {
           <small>Documents are read and reconciled locally.</small>
         </div>
         <div className="sidebar-bottom">
-          <button className="upgrade-card" onClick={() => open("pricing")}>
-            <span>✦</span>
-            <div>
-              <strong>
-                {ledger.plan === "Free"
-                  ? "Unlock Family"
-                  : `${ledger.plan} plan`}
-              </strong>
-              <small>Mock checkout</small>
-            </div>
-          </button>
           <button className="profile" onClick={() => open("settings")}>
             <span className="profile-avatar">AR</span>
             <span>Alex Rivera</span>
@@ -942,13 +922,6 @@ export default function Home() {
           onReopenResolved={reopenResolvedIssues}
         />
       )}
-      {modal === "pricing" && (
-        <PricingModal
-          plan={ledger.plan}
-          onClose={() => setModal(null)}
-          onChoose={choosePlan}
-        />
-      )}
       {activeIssue && (
         <IssueDrawer
           issue={activeIssue}
@@ -1072,7 +1045,7 @@ function Watchlist({
         <span className="setup-step">STEP 1 OF 3</span>
         <h2>Start with your coverage letter.</h2>
         <p>
-          Add an authorization manually or import the letter. CareLedger will
+          Add an authorization manually or import the letter. Ummi will
           keep each billing code and unit balance separate.
         </p>
         <div className="first-run-actions">
@@ -1112,7 +1085,7 @@ function Watchlist({
                 : "Your records match."}
           </h2>
           <p>
-            CareLedger compares what was scheduled, attended, billed, processed,
+            Ummi compares what was scheduled, attended, billed, processed,
             and paid—then gives you the evidence and exact next question.
           </p>
           <div className="hero-actions">
@@ -1208,7 +1181,7 @@ function Watchlist({
             <span>Recommended next step</span>
             <strong>{topIssue.action}</strong>
             <small>
-              CareLedger keeps the source records attached to this case.
+              Ummi keeps the source records attached to this case.
             </small>
           </div>
         </section>
@@ -1690,7 +1663,7 @@ function Evidence({
           onAction={onImport}
         />
         <p className="section-note">
-          CareLedger reads text-based PDFs and text files locally, extracts key
+          Ummi reads text-based PDFs and text files locally, extracts key
           fields, and stores the source with your private workspace.
         </p>
         {ledger.documents.length ? (
@@ -2648,7 +2621,7 @@ function SettingsModal({
       <p className="eyebrow">PRIVATE WORKSPACE</p>
       <h2>Your records stay with you</h2>
       <p>
-        CareLedger stores records in this browser. Back up before clearing
+        Ummi stores records in this browser. Back up before clearing
         browser data or changing devices.
       </p>
       <div className="stack-actions">
@@ -2683,54 +2656,6 @@ function SettingsModal({
         <button className="danger-button" onClick={onReset}>
           Restore sample workspace
         </button>
-      </div>
-    </Modal>
-  );
-}
-function PricingModal({
-  plan,
-  onClose,
-  onChoose,
-}: {
-  plan: string;
-  onClose: () => void;
-  onChoose: (plan: string) => void;
-}) {
-  return (
-    <Modal title="Mock checkout" onClose={onClose} wide>
-      <p className="eyebrow">NO REAL PAYMENT</p>
-      <h2>Choose your coverage protection</h2>
-      <p>
-        Pricing is being tested. This checkout only saves a plan selection
-        locally.
-      </p>
-      <div className="pricing-grid">
-        <article>
-          <span>Personal</span>
-          <strong>
-            $9<small>/month</small>
-          </strong>
-          <p>
-            One child, active authorization monitoring, and discrepancy packets.
-          </p>
-          <button onClick={() => onChoose("Personal")}>
-            {plan === "Personal" ? "Selected" : "Choose in mock checkout"}
-          </button>
-        </article>
-        <article className="featured">
-          <b>MOST USEFUL</b>
-          <span>Family</span>
-          <strong>
-            $15<small>/month</small>
-          </strong>
-          <p>
-            Multiple children, unlimited service lines, claim reminders, and
-            exportable evidence.
-          </p>
-          <button onClick={() => onChoose("Family")}>
-            {plan === "Family" ? "Selected" : "Choose in mock checkout"}
-          </button>
-        </article>
       </div>
     </Modal>
   );

@@ -1,5 +1,5 @@
 {
-  "name": "careledger",
+  "name": "ummi",
   "version": "0.1.0",
   "private": true,
   "engines": {
@@ -11,6 +11,8 @@
     "start": "WRANGLER_LOG_PATH=.wrangler/wrangler.log vinext start",
     "test": "npm run build && node --test tests/*.test.mjs",
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next --ignore-pattern public/pdf.worker.min.mjs",
+    "verify:free-only": "node scripts/verify-free-only.mjs",
+    "verify:free-only:build": "node scripts/verify-free-only.mjs --artifact dist",
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {

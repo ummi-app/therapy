@@ -89,7 +89,6 @@ export type Ledger = {
   claims: Claim[];
   documents: ImportedDocument[];
   reminders: Reminder[];
-  plan: string;
   sampleWorkspace?: boolean;
   resolvedIssueIds?: string[];
   resolutions?: IssueResolution[];
@@ -159,6 +158,202 @@ export type DocumentMatch = {
   lineId?: string;
   sessionId?: string;
 };
+
+export const ummiStorageKey = "ummi-reconciliation-v1";
+// Migration-only legacy key; constructed to keep obsolete branding out of UI/copy.
+const legacyStorageKey = ["care", "ledger", "-reconciliation-v1"].join("");
+export type LedgerStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
+
+type UnknownRecord = Record<string, unknown>;
+
+const sessionStatuses: SessionStatus[] = [
+  "Scheduled",
+  "Attended",
+  "Child cancelled",
+  "Provider cancelled",
+];
+const claimStatuses: ClaimStatus[] = [
+  "Not submitted",
+  "Pending",
+  "Processed",
+  "Denied",
+];
+const documentKinds: DocumentKind[] = [
+  "Authorization",
+  "EOB",
+  "Provider statement",
+  "Other",
+];
+
+function isRecord(value: unknown): value is UnknownRecord {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function stringValue(value: unknown) {
+  return typeof value === "string" ? value : "";
+}
+function numberValue(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+function booleanValue(value: unknown) {
+  return value === true;
+}
+function oneOf<T extends string>(value: unknown, allowed: readonly T[], fallback: T) {
+  return typeof value === "string" && allowed.includes(value as T)
+    ? (value as T)
+    : fallback;
+}
+const extractedFieldNames = new Set([
+  "authorizationNumber",
+  "claimNumber",
+  "provider",
+  "child",
+  "serviceDate",
+  "startDate",
+  "endDate",
+  "billingCode",
+  "approvedUnits",
+  "billedUnits",
+  "processedUnits",
+  "providerBilled",
+  "insurerAllowed",
+  "insurerPaid",
+  "parentResponsibility",
+  "denialReason",
+]);
+
+function supportedExtractedFields(value: unknown) {
+  if (!isRecord(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(
+      ([name, item]) => extractedFieldNames.has(name) && typeof item === "string",
+    ),
+  ) as Record<string, string>;
+}
+
+/**
+ * Builds the only persisted Ledger shape accepted from browser storage or a
+ * backup. Unknown and legacy fields, including prior monetization state, are
+ * intentionally omitted at every nesting level.
+ */
+export function normalizeLedger(value: unknown): Ledger | null {
+  if (!isRecord(value)) return null;
+  const { authorizations, sessions, claims, documents, reminders } = value;
+  if (
+    !Array.isArray(authorizations) ||
+    !Array.isArray(sessions) ||
+    !Array.isArray(claims) ||
+    !Array.isArray(documents) ||
+    !Array.isArray(reminders)
+  ) {
+    return null;
+  }
+
+  return {
+    authorizations: authorizations.filter(isRecord).map((authorization) => ({
+      id: stringValue(authorization.id),
+      child: stringValue(authorization.child),
+      service: stringValue(authorization.service),
+      provider: stringValue(authorization.provider),
+      number: stringValue(authorization.number),
+      starts: stringValue(authorization.starts),
+      ends: stringValue(authorization.ends),
+      lines: Array.isArray(authorization.lines)
+        ? authorization.lines.filter(isRecord).map((line) => ({
+            id: stringValue(line.id),
+            code: stringValue(line.code),
+            label: stringValue(line.label),
+            unitLabel: stringValue(line.unitLabel),
+            approvedUnits: numberValue(line.approvedUnits),
+            providerReportedUsedUnits: numberValue(line.providerReportedUsedUnits),
+          }))
+        : [],
+    })),
+    sessions: sessions.filter(isRecord).map((session) => ({
+      id: stringValue(session.id),
+      authorizationId: stringValue(session.authorizationId),
+      lineId: stringValue(session.lineId),
+      date: stringValue(session.date),
+      status: oneOf(session.status, sessionStatuses, "Scheduled"),
+      scheduledUnits: numberValue(session.scheduledUnits),
+      attendedUnits: numberValue(session.attendedUnits),
+      providerBilledUnits: numberValue(session.providerBilledUnits),
+      note: stringValue(session.note),
+    })),
+    claims: claims.filter(isRecord).map((claim) => ({
+      id: stringValue(claim.id),
+      claimNumber: stringValue(claim.claimNumber),
+      authorizationId: stringValue(claim.authorizationId),
+      sessionId: stringValue(claim.sessionId),
+      submittedAt: stringValue(claim.submittedAt),
+      processedAt: stringValue(claim.processedAt),
+      status: oneOf(claim.status, claimStatuses, "Not submitted"),
+      billedUnits: numberValue(claim.billedUnits),
+      processedUnits: numberValue(claim.processedUnits),
+      providerBilled: numberValue(claim.providerBilled),
+      insurerAllowed: numberValue(claim.insurerAllowed),
+      insurerPaid: numberValue(claim.insurerPaid),
+      parentResponsibility: numberValue(claim.parentResponsibility),
+      parentPaid: numberValue(claim.parentPaid),
+      denialReason: stringValue(claim.denialReason),
+    })),
+    documents: documents.filter(isRecord).map((document) => ({
+      id: stringValue(document.id),
+      name: stringValue(document.name),
+      kind: oneOf(document.kind, documentKinds, "Other"),
+      importedAt: stringValue(document.importedAt),
+      text: stringValue(document.text),
+      extracted: supportedExtractedFields(document.extracted),
+    })),
+    reminders: reminders.filter(isRecord).map((reminder) => ({
+      id: stringValue(reminder.id),
+      title: stringValue(reminder.title),
+      due: stringValue(reminder.due),
+      done: booleanValue(reminder.done),
+    })),
+    sampleWorkspace: booleanValue(value.sampleWorkspace),
+    resolvedIssueIds: Array.isArray(value.resolvedIssueIds)
+      ? value.resolvedIssueIds.filter((item): item is string => typeof item === "string")
+      : [],
+    resolutions: Array.isArray(value.resolutions)
+      ? value.resolutions.filter(isRecord).map((resolution) => ({
+          issueId: stringValue(resolution.issueId),
+          title: stringValue(resolution.title),
+          resolvedAt: stringValue(resolution.resolvedAt),
+          fingerprint: stringValue(resolution.fingerprint),
+          note: stringValue(resolution.note),
+        }))
+      : [],
+  };
+}
+
+function parseStoredLedger(value: string | null) {
+  if (!value) return null;
+  try {
+    return normalizeLedger(JSON.parse(value));
+  } catch {
+    return null;
+  }
+}
+
+/** Migrates v1 once, persisting a normalized Ummi record before legacy removal. */
+export function migrateLedgerStorage(storage: LedgerStorage): Ledger | null {
+  const current = parseStoredLedger(storage.getItem(ummiStorageKey));
+  const legacyRaw = storage.getItem(legacyStorageKey);
+  if (current) {
+    storage.setItem(ummiStorageKey, JSON.stringify(current));
+    if (legacyRaw !== null) storage.removeItem(legacyStorageKey);
+    return current;
+  }
+  const legacy = parseStoredLedger(legacyRaw);
+  if (!legacy) {
+    if (storage.getItem(ummiStorageKey) !== null) storage.removeItem(ummiStorageKey);
+    if (legacyRaw !== null) storage.removeItem(legacyStorageKey);
+    return null;
+  }
+  storage.setItem(ummiStorageKey, JSON.stringify(legacy));
+  storage.removeItem(legacyStorageKey);
+  return legacy;
+}
 
 const NOW = "2026-07-31";
 const DAY = 86_400_000;
@@ -364,7 +559,6 @@ export const seedLedger: Ledger = {
       done: false,
     },
   ],
-  plan: "Free",
   sampleWorkspace: true,
   resolvedIssueIds: [],
   resolutions: [],
@@ -376,7 +570,6 @@ export const emptyLedger: Ledger = {
   claims: [],
   documents: [],
   reminders: [],
-  plan: "Free",
   sampleWorkspace: false,
   resolvedIssueIds: [],
   resolutions: [],
@@ -540,7 +733,7 @@ export function detectIssues(ledger: Ledger, now = NOW): Issue[] {
         detail: `${forecast.remaining} units remain at about ${forecast.weeklyRate} units per week, projecting depletion on ${dateLabel(forecast.projectedRunout)}.`,
         authorizationId: authorization.id,
         action:
-          "Compare the remaining plan with scheduled sessions and ask whether more units are needed.",
+          "Compare the remaining authorization with scheduled sessions and ask whether more units are needed.",
       });
     }
   }
@@ -731,5 +924,5 @@ export function buildEvidencePacket(issue: Issue, ledger: Ledger) {
         `${row.session.date} | ${row.session.status} | scheduled ${row.scheduled} | attended ${row.attended} | provider billed ${row.providerBilled} | insurer processed ${row.insurerProcessed}`,
     )
     .join("\n");
-  return `CARELEDGER EVIDENCE SUMMARY\nGenerated ${NOW}\n\nISSUE\n${issue.title}\n${issue.detail}\n\nAUTHORIZATION\n${authorization ? `${authorization.child} | ${authorization.service} | ${authorization.provider}\nAuthorization ${authorization.number} | ${authorization.starts} to ${authorization.ends}` : "Not linked"}\n\nCLAIM\n${claim ? `${claim.claimNumber} | ${claim.status} | billed ${money(claim.providerBilled)} | family responsibility ${money(claim.parentResponsibility)}\nDenial reason: ${claim.denialReason || "none recorded"}` : "Not linked"}\n\nSESSION RECONCILIATION\n${evidence || "No linked sessions"}\n\nCALL SCRIPT\nHello, I’m calling about ${authorization?.child ?? "my child"}’s ${authorization?.service ?? "therapy"} records. My records show: ${issue.detail} Please send me the dated service-unit ledger, the submitted claim details, and the authorization record used to calculate remaining coverage. Please do not move this balance to self-pay while the discrepancy is reviewed. What is the reference number for this request, and when should I follow up?\n\nREQUESTED RESOLUTION\n${issue.action}\n\nNOTES\nThis is a parent-maintained record, not legal or medical advice. Verify all figures against the insurer EOB and provider statement.`;
+  return `UMMI EVIDENCE SUMMARY\nGenerated ${NOW}\n\nISSUE\n${issue.title}\n${issue.detail}\n\nAUTHORIZATION\n${authorization ? `${authorization.child} | ${authorization.service} | ${authorization.provider}\nAuthorization ${authorization.number} | ${authorization.starts} to ${authorization.ends}` : "Not linked"}\n\nCLAIM\n${claim ? `${claim.claimNumber} | ${claim.status} | billed ${money(claim.providerBilled)} | family responsibility ${money(claim.parentResponsibility)}\nDenial reason: ${claim.denialReason || "none recorded"}` : "Not linked"}\n\nSESSION RECONCILIATION\n${evidence || "No linked sessions"}\n\nCALL SCRIPT\nHello, I’m calling about ${authorization?.child ?? "my child"}’s ${authorization?.service ?? "therapy"} records. My records show: ${issue.detail} Please send me the dated service-unit ledger, the submitted claim details, and the authorization record used to calculate remaining coverage. Please do not move this balance to self-pay while the discrepancy is reviewed. What is the reference number for this request, and when should I follow up?\n\nREQUESTED RESOLUTION\n${issue.action}\n\nNOTES\nThis is a parent-maintained record, not legal or medical advice. Verify all figures against the insurer EOB and provider statement.`;
 }

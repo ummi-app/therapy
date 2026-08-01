@@ -12,7 +12,7 @@ The hosted app persists each account's data in Supabase with RLS and is served a
 
 ## Explicit exclusions
 
-No payment collection, Stripe, pricing/plans, subscriptions, checkout, insurer/provider integrations, claim submission, legal/medical advice, scanned-image OCR, or outbound notifications. Remove excluded or incomplete ideas; never ship them as disabled controls or future promises.
+No payment collection by Ummi, Stripe, paid pricing/plans, subscriptions, checkout, insurer/provider integrations, claim submission, legal/medical advice, scanned-image OCR, or outbound notifications. Claim and EOB payment facts are allowed reconciliation data; they do not represent payment collection by Ummi. Remove excluded or incomplete ideas; never ship them as disabled controls or future promises.
 
 ## Stop condition
 
