@@ -1,0 +1,12 @@
+EXPLANATION OF BENEFITS
+Claim Number: CLM-88291
+Patient: Eli Rivera
+Provider: Northstar ABA
+Service Date: 07/11/2026
+CPT Code: 97153
+Units Billed: 16
+Units Processed: 16
+Provider Billed: $1,200
+Allowed Amount: $720
+Insurance Paid: $540
+Patient Responsibility: $180

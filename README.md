@@ -1,8 +1,9 @@
 # CareLedger
 
-CareLedger is a local-first MVP for families coordinating recurring pediatric
-therapy. It makes authorization runways, claims that need attention, documents,
-and follow-ups visible in one place.
+CareLedger is a device-local pediatric therapy authorization and billing
+reconciliation MVP. It helps a parent catch unit-count, attendance, claim, and
+payment discrepancies before care is interrupted or a balance becomes a
+surprise bill.
 
 ## Run it locally
 
@@ -13,18 +14,28 @@ npm run dev
 
 Then open [http://localhost:3000](http://localhost:3000).
 
-## What you can use today
+To exercise document extraction immediately, import one of the files in
+`examples/careledger-samples/` from the Evidence screen.
 
-- Add, edit, remove, and update usage on therapy authorization plans.
-- Track claims, change their status, filter them, and remove records you no longer need.
-- Maintain a document readiness checklist with optional private reference links.
-- Add and complete follow-up tasks in a combined care timeline.
-- Back up the complete workspace to JSON and restore it on this device.
-- Try the mock subscription checkout from the sidebar upgrade card.
+## Implemented workflows
 
-## Important MVP boundaries
+- Track authorization units separately by billing or CPT code.
+- Log scheduled, attended, child-cancelled, and provider-cancelled sessions.
+- Compare scheduled, attended, provider-billed, insurer-processed, and
+  parent-paid units for every session.
+- Import text-based PDF, TXT, CSV, or pasted authorization/EOB/statement text;
+  extract key fields and create the corresponding local record.
+- Detect cancelled-session billing, excess billed units, provider-ledger
+  mismatches, denied and stale claims, and overpayments.
+- Forecast unit runout and authorization renewal windows from recent usage.
+- Generate a call script, evidence summary, and correction or appeal request.
+- Surface in-app reminders when claims stall or renewals approach.
+- Export and restore a private JSON backup and try the mock subscription flow.
 
-This local version does not upload data, submit claims, provide medical or legal
-advice, or take a real payment. Records are stored only in this browser on this
-device. A production version should use authenticated, privacy-safe storage and
-a trusted payment processor before accepting protected health information.
+## Privacy and MVP boundaries
+
+Records and imported document text stay in this browser on this device. The app
+does not upload documents, connect to an insurer or provider, submit claims,
+send notifications outside the app, provide medical or legal advice, or take a
+real payment. Scanned-image PDFs require OCR before import. Verify every number
+against the original authorization, EOB, and provider statement.

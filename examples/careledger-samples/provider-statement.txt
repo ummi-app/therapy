@@ -1,0 +1,6 @@
+PROVIDER STATEMENT
+Patient: Eli Rivera
+Provider: Northstar ABA
+CPT Code: 97153
+Units Billed: 200
+Amount Due: $600

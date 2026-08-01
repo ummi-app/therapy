@@ -1,0 +1,8 @@
+AUTHORIZATION LETTER
+Authorization Number: ST-55201
+Patient: Eli Rivera
+Provider: Clear Voice Clinic
+CPT Code: 92507
+Approved Units: 24
+Start Date: 08/01/2026
+End Date: 10/31/2026
