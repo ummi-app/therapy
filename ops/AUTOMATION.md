@@ -2,12 +2,12 @@
 
 | Field | Value |
 | --- | --- |
-| Executor | GPT-5.6 Terra, medium reasoning |
+| Executor | GPT-5.6 Luna, high reasoning |
 | Automation project cwd | `/Users/rohan/repos` |
 | Task repository cwd | `/Users/rohan/repos/therapy-coverage-ledger` |
 | Cadence | Hourly at minute `5`, one run at a time |
 | Automation ID | `ummi-hourly-product-builder` |
-| Status | `ACTIVE` (tracked and externally verified after reviewed activation commit `db9aa4ec0b74227f609d104f2f70cf77aa5aea46`) |
+| Status | `PAUSED` during policy reconciliation; reactivate only after this reviewed commit is pushed |
 | Persisted state | This file, `ops/CURSOR.md`, `ops/BACKLOG.md`, and `ops/RUN_LOG.md` in the pinned repository |
 | Terminal marker | `not-complete`; set `complete:<release commit>` only after the mission stop condition |
 

@@ -5,7 +5,7 @@ description: Run the Ummi pediatric-therapy ledger through a deterministic, sing
 
 # Ummi Autonomous Operator
 
-Read all `ops/*.md` files before changing state. The automation project cwd is `/Users/rohan/repos`; its prompt is pinned to task repository cwd `/Users/rohan/repos/therapy-coverage-ledger`. Use GPT-5.6 Terra at medium reasoning and honor the pinned targets in `ops/AUTHORITY.md`.
+Read all `ops/*.md` files before changing state. The automation project cwd is `/Users/rohan/repos`; its prompt is pinned to task repository cwd `/Users/rohan/repos/therapy-coverage-ledger`. Use GPT-5.6 Luna at high reasoning and honor the pinned targets in `ops/AUTHORITY.md`.
 
 ## Hourly cycle
 

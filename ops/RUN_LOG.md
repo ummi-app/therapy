@@ -21,6 +21,22 @@ Deploy: <environment, artifact digest, URL/id, acceptance, rollback evidence; or
 Status/next: <backlog/cursor/terminal-marker state>
 ```
 
+## 2026-08-01T20:56:23Z — policy-recovery — Luna/high reconciliation after L-01
+
+Lock: no hourly lock; automation `ummi-hourly-product-builder` paused before recovery
+Prior result: L-01 source slice committed and pushed as `a1862dc` (`feat: rename product to Ummi and remove monetization surfaces`)
+Selection: user explicitly requested restoration of the Luna/high policy after it was incorrectly excluded from the L-01 commit
+Work: restored Luna/high in the operator skill, automation contract, and decision record; preserved the recoverable concurrent-edit stash; corrected the L-01 status evidence below
+Blocker: none
+Implementer review: exact policy/reconciliation diff inspected; no product files included
+Independent commit review: required for this exact final staged diff before commit
+Validation: targeted policy-reference check, automation-state check, and `git diff --check`
+Secret/public scan: no new secret-bearing content
+Commit intent: `chore: restore Luna high automation policy and reconcile L-01` on `main`
+Independent deploy review: none; no deploy
+Deploy: none
+Status/next: commit and push this reviewed policy reconciliation; leave automation paused until the user resumes it
+
 ## 2026-08-01T19:03:39Z — bootstrap-automation — operations scaffold
 
 Lock: manual bootstrap; hourly automation `ummi-hourly-product-builder` created paused; Terra medium executor; task cwd verified
@@ -84,14 +100,14 @@ Secret/public scan: prior reachable-history public-repository scan remains recor
 Commit intent: `feat: rename product to Ummi and remove monetization surfaces` on `main`; final staged-tree reference and approval pending external independent review
 Independent deploy review: none; no deploy
 Deploy: none; L-10 must repeat the verifier against the deployed production artifact
-Status/next: L-01 remains active until this exact final tree receives independent approval and is committed/pushed. After that, create a separately reviewed ops-only L-01 result reconciliation/closure; only then mark it done and select L-02.
+Status/next: L-01 source slice committed/pushed as `a1862dc`; this entry is the separately reviewed ops-only reconciliation/closure, after which L-02 may be selected when automation resumes.
 
 ## 2026-08-01T20:51:53Z — manual-l01-close-20260801T204800Z — L-01 result reconciliation/closure
 
 Lock: owned by root-managed manual run `manual-l01-close-20260801T204800Z`; not acquired or released by this reconciler; task cwd `/Users/rohan/repos/therapy-coverage-ledger`
 Prior result: approved final staged tree `c9903e1e0987273d697120a4d16b288400134248` and binary staged-diff SHA-256 `c27bf322d8fe2a946d3c84e106ac1e233f049e848170b7ce93e1c367882c59fe` reconcile exactly to independently approved, pushed `main` commit `a1862dcf80168cc58900c1f07892f3aa103d0cf3` (`feat: rename product to Ummi and remove monetization surfaces`); `HEAD` and `origin/main` both resolve to that commit
 Selection: `ops/CURSOR.md` required the separately reviewed ops-only closure after the L-01 product commit/push; with L-01 acceptance now evidenced, cursor rule 2 selects L-02
-Work: updated only `ops/BACKLOG.md`, `ops/CURSOR.md`, and this run log to mark L-01 done and L-02 active; preserved the concurrent unauthorized Luna/high policy patch as untouched `stash@{0}` (`ce2c9453213cd09b53aaaf02c542fa79d9aa5799`) for later authorized reconciliation; scheduler remains externally restored to `ACTIVE` with GPT-5.6 Terra medium
+Work: updated only `ops/BACKLOG.md`, `ops/CURSOR.md`, and this run log to mark L-01 done and L-02 active; preserved the concurrent Luna/high policy patch as untouched `stash@{0}` (`ce2c9453213cd09b53aaaf02c542fa79d9aa5799`) for later authorized reconciliation; scheduler was then paused for this authorized policy recovery
 Blocker: none
 Implementer review: exact three-file ops-only closure allowlist inspected before staging; no product files or stash entries modified
 Independent commit review: pending separate reviewer approval of this exact ops-only final staged tree; product commit approval was reviewer `review_l01_ummi_purge_v4`
