@@ -1,184 +1,145 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
+type View = "Overview" | "Coverage" | "Claims" | "Documents" | "Timeline";
 type ClaimStatus = "Paid" | "Pending" | "Needs review" | "Denied";
+type Tone = "urgent" | "warm" | "neutral";
+type Authorization = { id: number; child: string; service: string; provider: string; approved: number; used: number; ends: string; number: string; color: Tone };
+type Claim = { id: number; provider: string; service: string; date: string; amount: number; status: ClaimStatus; note: string; authorizationId?: number };
+type CareDocument = { id: number; name: string; kind: string; provider: string; expires: string; link: string; ready: boolean };
+type Task = { id: number; title: string; detail: string; due: string; tone: Tone; done: boolean };
+type Ledger = { authorizations: Authorization[]; claims: Claim[]; documents: CareDocument[]; tasks: Task[]; plan: string };
 
-type Claim = {
-  id: number;
-  provider: string;
-  service: string;
-  date: string;
-  amount: number;
-  status: ClaimStatus;
-  note: string;
+const storageKey = "careledger-workspace-v2";
+const today = new Date().toISOString().slice(0, 10);
+const seedLedger: Ledger = {
+  authorizations: [
+    { id: 1, child: "Maya", service: "Occupational therapy", provider: "Bright Path OT", approved: 40, used: 31, ends: "2026-08-18", number: "OT-4471", color: "neutral" },
+    { id: 2, child: "Maya", service: "Speech therapy", provider: "Clear Voice Clinic", approved: 24, used: 18, ends: "2026-09-02", number: "SP-8820", color: "neutral" },
+    { id: 3, child: "Eli", service: "Behavior therapy", provider: "Northstar ABA", approved: 30, used: 14, ends: "2026-08-09", number: "ABA-2049", color: "warm" },
+  ],
+  claims: [
+    { id: 11, provider: "Bright Path OT", service: "OT · 60 min", date: "2026-07-28", amount: 168, status: "Pending", note: "Submitted Jul 29", authorizationId: 1 },
+    { id: 12, provider: "Northstar ABA", service: "ABA · 120 min", date: "2026-07-25", amount: 312, status: "Needs review", note: "Hours cap cited", authorizationId: 3 },
+    { id: 13, provider: "Clear Voice Clinic", service: "Speech · 45 min", date: "2026-07-24", amount: 142, status: "Paid", note: "Paid Jul 27", authorizationId: 2 },
+    { id: 14, provider: "Bright Path OT", service: "OT · 60 min", date: "2026-07-21", amount: 168, status: "Denied", note: "Authorization mismatch", authorizationId: 1 },
+  ],
+  documents: [
+    { id: 21, name: "Maya OT authorization", kind: "Authorization letter", provider: "Bright Path OT", expires: "2026-08-18", link: "", ready: true },
+    { id: 22, name: "Eli ABA plan of care", kind: "Plan of care", provider: "Northstar ABA", expires: "2026-08-09", link: "", ready: false },
+    { id: 23, name: "Speech evaluation", kind: "Evaluation", provider: "Clear Voice Clinic", expires: "", link: "", ready: true },
+  ],
+  tasks: [
+    { id: 31, title: "Confirm Northstar’s remaining ABA hours", detail: "The insurer figure does not match the sessions recorded here.", due: "Today", tone: "urgent", done: false },
+    { id: 32, title: "Request corrected claim from Bright Path OT", detail: "Claim #7219 needs its authorization number added.", due: "Aug 2", tone: "warm", done: false },
+    { id: 33, title: "Renew Maya’s OT authorization", detail: "Start now so coverage does not lapse after Aug 18.", due: "Aug 6", tone: "neutral", done: false },
+  ],
+  plan: "Free",
 };
 
-type Authorization = {
-  id: number;
-  child: string;
-  service: string;
-  provider: string;
-  used: number;
-  approved: number;
-  expires: string;
-  color: "violet" | "orange" | "mint";
-};
-
-type Task = {
-  id: number;
-  title: string;
-  detail: string;
-  due: string;
-  tone: "urgent" | "warm" | "neutral";
-  done: boolean;
-};
-
-const seedAuthorizations: Authorization[] = [
-  { id: 1, child: "Maya", service: "Occupational therapy", provider: "Bright Path OT", used: 31, approved: 40, expires: "Aug 18", color: "violet" },
-  { id: 2, child: "Maya", service: "Speech therapy", provider: "Clear Voice Clinic", used: 18, approved: 24, expires: "Sep 2", color: "mint" },
-  { id: 3, child: "Eli", service: "Behavior therapy", provider: "Northstar ABA", used: 14, approved: 30, expires: "Aug 9", color: "orange" },
-];
-
-const seedClaims: Claim[] = [
-  { id: 1, provider: "Bright Path OT", service: "OT · 60 min", date: "Jul 28", amount: 168, status: "Pending", note: "Submitted Jul 29" },
-  { id: 2, provider: "Northstar ABA", service: "ABA · 120 min", date: "Jul 25", amount: 312, status: "Needs review", note: "Hours cap cited" },
-  { id: 3, provider: "Clear Voice Clinic", service: "Speech · 45 min", date: "Jul 24", amount: 142, status: "Paid", note: "Paid Jul 27" },
-  { id: 4, provider: "Bright Path OT", service: "OT · 60 min", date: "Jul 21", amount: 168, status: "Denied", note: "Authorization mismatch" },
-];
-
-const seedTasks: Task[] = [
-  { id: 1, title: "Confirm Northstar’s remaining ABA hours", detail: "The insurer’s 200-hour figure does not match the 14 sessions you have recorded.", due: "Due today", tone: "urgent", done: false },
-  { id: 2, title: "Request corrected claim from Bright Path OT", detail: "Claim #7219 was denied because the authorization number was missing.", due: "Due Aug 2", tone: "warm", done: false },
-  { id: 3, title: "Renew Maya’s OT authorization", detail: "Start now so coverage does not lapse after Aug 18.", due: "In 17 days", tone: "neutral", done: false },
-];
-
-function currency(amount: number) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
-}
-
-function initials(name: string) {
-  return name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
-}
+const serviceOptions = ["Occupational therapy", "Speech therapy", "Behavior therapy", "Physical therapy", "Feeding therapy"];
+const nav: View[] = ["Overview", "Coverage", "Claims", "Documents", "Timeline"];
+const copy = <T,>(value: T): T => JSON.parse(JSON.stringify(value));
+const money = (amount: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format(amount);
+const dateLabel = (date: string) => date ? new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00`)) : "No expiry";
+const initials = (name: string) => name.split(" ").map((part) => part[0]).join("").slice(0, 2).toUpperCase();
 
 export default function Home() {
-  const [authorizations, setAuthorizations] = useState<Authorization[]>(seedAuthorizations);
-  const [claims, setClaims] = useState<Claim[]>(seedClaims);
-  const [tasks, setTasks] = useState<Task[]>(seedTasks);
-  const [showCaseForm, setShowCaseForm] = useState(false);
-  const [showPricing, setShowPricing] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState("Free");
-  const [toast, setToast] = useState("");
-  const [activeView, setActiveView] = useState("Overview");
+  const [ledger, setLedger] = useState<Ledger>(() => copy(seedLedger));
+  const [view, setView] = useState<View>("Overview");
+  const [modal, setModal] = useState<"coverage" | "claim" | "document" | "task" | "pricing" | "settings" | null>(null);
+  const [editingAuthorization, setEditingAuthorization] = useState<Authorization | null>(null);
+  const [claimFilter, setClaimFilter] = useState<"All" | ClaimStatus>("All");
+  const [notice, setNotice] = useState("");
+  const [hydrated, setHydrated] = useState(false);
+  const [saveState, setSaveState] = useState<"Loading" | "Saved" | "Saving">("Loading");
+  const importRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const saved = window.localStorage.getItem("careledger-demo");
-    if (!saved) return;
-    try {
-      const data = JSON.parse(saved);
-      queueMicrotask(() => {
-        if (data.authorizations) setAuthorizations(data.authorizations);
-        if (data.claims) setClaims(data.claims);
-        if (data.tasks) setTasks(data.tasks);
-        if (data.plan) setSelectedPlan(data.plan);
-      });
-    } catch {
-      window.localStorage.removeItem("careledger-demo");
+    const saved = window.localStorage.getItem(storageKey);
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Ledger;
+        if (parsed.authorizations && parsed.claims && parsed.documents && parsed.tasks) queueMicrotask(() => setLedger(parsed));
+      } catch { window.localStorage.removeItem(storageKey); }
     }
+    queueMicrotask(() => { setHydrated(true); setSaveState("Saved"); });
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem("careledger-demo", JSON.stringify({ authorizations, claims, tasks, plan: selectedPlan }));
-  }, [authorizations, claims, tasks, selectedPlan]);
+    if (!hydrated) return;
+    const timer = window.setTimeout(() => {
+      window.localStorage.setItem(storageKey, JSON.stringify(ledger));
+      setSaveState("Saved");
+    }, 220);
+    return () => window.clearTimeout(timer);
+  }, [ledger, hydrated]);
 
-  const totalAtRisk = useMemo(() => claims.filter((claim) => claim.status === "Denied" || claim.status === "Needs review").reduce((sum, claim) => sum + claim.amount, 0), [claims]);
-  const urgentCount = tasks.filter((task) => !task.done).length;
-  const usedHours = authorizations.reduce((sum, item) => sum + item.used, 0);
-  const approvedHours = authorizations.reduce((sum, item) => sum + item.approved, 0);
+  const totalAtRisk = useMemo(() => ledger.claims.filter((claim) => claim.status === "Denied" || claim.status === "Needs review").reduce((sum, claim) => sum + claim.amount, 0), [ledger.claims]);
+  const usedHours = ledger.authorizations.reduce((sum, item) => sum + item.used, 0);
+  const approvedHours = ledger.authorizations.reduce((sum, item) => sum + item.approved, 0);
+  const openTasks = ledger.tasks.filter((task) => !task.done);
+  const filteredClaims = claimFilter === "All" ? ledger.claims : ledger.claims.filter((claim) => claim.status === claimFilter);
 
-  function toggleTask(id: number) {
-    setTasks((current) => current.map((task) => task.id === id ? { ...task, done: !task.done } : task));
+  function updateLedger(update: (current: Ledger) => Ledger) { setLedger((current) => update(current)); }
+  function dismiss(message: string) { setNotice(message); window.setTimeout(() => setNotice(""), 4200); }
+  function openCoverage(item?: Authorization) { setEditingAuthorization(item ?? null); setModal("coverage"); }
+  function saveCoverage(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); const form = new FormData(event.currentTarget); const id = editingAuthorization?.id ?? Date.now();
+    const next: Authorization = { id, child: String(form.get("child")), service: String(form.get("service")), provider: String(form.get("provider")), approved: Math.max(1, Number(form.get("approved"))), used: Math.max(0, Number(form.get("used"))), ends: String(form.get("ends")), number: String(form.get("number")), color: String(form.get("color")) as Tone };
+    updateLedger((current) => ({ ...current, authorizations: editingAuthorization ? current.authorizations.map((item) => item.id === id ? next : item) : [...current.authorizations, next], tasks: editingAuthorization ? current.tasks : [{ id: Date.now() + 1, title: `Save ${next.service.toLowerCase()} approval`, detail: `Add the approval letter for ${next.provider}.`, due: "This week", tone: "neutral", done: false }, ...current.tasks] }));
+    setModal(null); dismiss(editingAuthorization ? "Coverage plan updated." : "Coverage plan added.");
   }
+  function adjustUsage(id: number, amount: number) { updateLedger((current) => ({ ...current, authorizations: current.authorizations.map((item) => item.id === id ? { ...item, used: Math.max(0, Math.min(item.approved, item.used + amount)) } : item) })); }
+  function removeCoverage(id: number) { if (window.confirm("Remove this coverage plan? Claims and documents stay in the ledger.")) { updateLedger((current) => ({ ...current, authorizations: current.authorizations.filter((item) => item.id !== id) })); dismiss("Coverage plan removed."); } }
+  function saveClaim(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const claim: Claim = { id: Date.now(), provider: String(form.get("provider")), service: String(form.get("service")), date: String(form.get("date")), amount: Math.max(0, Number(form.get("amount"))), status: String(form.get("status")) as ClaimStatus, note: String(form.get("note")), authorizationId: Number(form.get("authorizationId")) || undefined }; updateLedger((current) => ({ ...current, claims: [claim, ...current.claims] })); setModal(null); dismiss("Claim added to your tracker."); }
+  function updateClaim(id: number, status: ClaimStatus) { updateLedger((current) => ({ ...current, claims: current.claims.map((claim) => claim.id === id ? { ...claim, status } : claim) })); }
+  function removeClaim(id: number) { updateLedger((current) => ({ ...current, claims: current.claims.filter((claim) => claim.id !== id) })); dismiss("Claim removed."); }
+  function saveDocument(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const document: CareDocument = { id: Date.now(), name: String(form.get("name")), kind: String(form.get("kind")), provider: String(form.get("provider")), expires: String(form.get("expires")), link: String(form.get("link")), ready: Boolean(form.get("ready")) }; updateLedger((current) => ({ ...current, documents: [document, ...current.documents] })); setModal(null); dismiss("Document added to the checklist."); }
+  function toggleDocument(id: number) { updateLedger((current) => ({ ...current, documents: current.documents.map((item) => item.id === id ? { ...item, ready: !item.ready } : item) })); }
+  function removeDocument(id: number) { updateLedger((current) => ({ ...current, documents: current.documents.filter((item) => item.id !== id) })); dismiss("Document removed."); }
+  function saveTask(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); const task: Task = { id: Date.now(), title: String(form.get("title")), detail: String(form.get("detail")), due: String(form.get("due")) || "No due date", tone: String(form.get("tone")) as Tone, done: false }; updateLedger((current) => ({ ...current, tasks: [task, ...current.tasks] })); setModal(null); dismiss("Follow-up added."); }
+  function toggleTask(id: number) { updateLedger((current) => ({ ...current, tasks: current.tasks.map((task) => task.id === id ? { ...task, done: !task.done } : task) })); }
+  function exportLedger() { const blob = new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), ledger }, null, 2)], { type: "application/json" }); const url = URL.createObjectURL(blob); const anchor = document.createElement("a"); anchor.href = url; anchor.download = `careledger-backup-${today}.json`; anchor.click(); URL.revokeObjectURL(url); dismiss("Backup downloaded. Keep it somewhere private."); }
+  function importLedger(event: ChangeEvent<HTMLInputElement>) { const file = event.target.files?.[0]; if (!file) return; const reader = new FileReader(); reader.onload = () => { try { const parsed = JSON.parse(String(reader.result)) as Ledger | { ledger: Ledger }; const next = "ledger" in parsed ? parsed.ledger : parsed; if (!next.authorizations || !next.claims || !next.documents || !next.tasks) throw new Error(); setLedger(next as Ledger); dismiss("Backup restored to this device."); } catch { dismiss("That backup could not be read."); } }; reader.readAsText(file); event.target.value = ""; }
+  function resetLedger() { if (window.confirm("Restore the starter workspace? Your current local records will be replaced.")) { setLedger(copy(seedLedger)); setView("Overview"); setModal(null); dismiss("Starter workspace restored."); } }
+  function startPlan(plan: string) { updateLedger((current) => ({ ...current, plan })); setModal(null); dismiss(`${plan} plan activated — mock checkout complete.`); }
 
-  function createCase(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
-    const child = String(form.get("child") || "Child");
-    const service = String(form.get("service") || "Therapy");
-    const provider = String(form.get("provider") || "Provider");
-    const approved = Math.max(1, Number(form.get("approved") || 24));
-    const expires = String(form.get("expires") || "Sep 30");
-    const newAuthorization: Authorization = { id: Date.now(), child, service, provider, used: 0, approved, expires, color: "violet" };
-    setAuthorizations((current) => [...current, newAuthorization]);
-    setTasks((current) => [{ id: Date.now() + 1, title: `Add ${service.toLowerCase()} authorization letter`, detail: `Capture the approval reference and service details for ${provider}.`, due: "Set a due date", tone: "neutral", done: false }, ...current]);
-    setShowCaseForm(false);
-    setToast(`${service} coverage added for ${child}`);
-  }
-
-  function startMockCheckout(plan: string) {
-    setSelectedPlan(plan);
-    setShowPricing(false);
-    setToast(`${plan} is active — this was a successful mock checkout.`);
-  }
-
-  function addDemoClaim() {
-    setClaims((current) => [{ id: Date.now(), provider: "New provider", service: "Therapy · 60 min", date: "Today", amount: 175, status: "Pending", note: "Added locally" }, ...current]);
-    setToast("A new claim was added to your tracker.");
-  }
-
-  return (
-    <main className="app-shell">
-      <aside className="sidebar">
-        <div className="brand"><span className="brand-mark">C</span><span>careledger</span></div>
-        <div className="family-switcher"><span className="avatar-group"><span className="mini-avatar lavender">M</span><span className="mini-avatar peach">E</span></span><span><strong>Rivera family</strong><small>2 children · 3 providers</small></span><span className="chevron">⌄</span></div>
-        <nav aria-label="Primary navigation">
-          {["Overview", "Coverage", "Claims", "Documents", "Timeline"].map((item) => <button key={item} className={activeView === item ? "nav-item active" : "nav-item"} onClick={() => setActiveView(item)}><span>{item === "Overview" ? "◌" : item === "Coverage" ? "◒" : item === "Claims" ? "▤" : item === "Documents" ? "▱" : "◷"}</span>{item}</button>)}
-        </nav>
-        <div className="sidebar-bottom">
-          <button className="mini-upgrade" onClick={() => setShowPricing(true)}><span className="sparkle">✦</span><span><strong>{selectedPlan === "Free" ? "Upgrade your plan" : `${selectedPlan} plan`}</strong><small>{selectedPlan === "Free" ? "See all therapy coverage" : "Mock subscription active"}</small></span></button>
-          <button className="profile"><span className="profile-avatar">AR</span><span>Alex Rivera</span><span className="dots">•••</span></button>
-        </div>
-      </aside>
-
-      <section className="content">
-        <header className="topbar">
-          <div><p className="eyebrow">Tuesday, July 31</p><h1>Good morning, Alex.</h1></div>
-          <div className="header-actions"><button className="icon-button" aria-label="Notifications">⌁<span className="notification-dot" /></button><button className="add-button" onClick={() => setShowCaseForm(true)}><span>+</span> Add coverage</button></div>
-        </header>
-
-        <section className="hero-card">
-          <div className="hero-copy"><span className="pill"><span className="pulse" /> {urgentCount} actions need attention</span><h2>Keep care moving.<br /><em>Without chasing paperwork.</em></h2><p>CareLedger turns therapy authorizations, claims, and follow-ups into one calm, clear plan for your family.</p><button className="outline-button" onClick={() => setActiveView("Timeline")}>View your care timeline <span>→</span></button></div>
-          <div className="hero-visual" aria-hidden="true"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="hero-card-stack card-back" /><div className="hero-card-stack card-front"><span className="stack-icon">▣</span><span>Coverage</span><strong>3 active plans</strong><div className="stack-meter"><span /></div></div><span className="tiny-star star-a">✦</span><span className="tiny-star star-b">✦</span></div>
-        </section>
-
-        <section className="stats-grid">
-          <article className="stat-card"><div className="stat-label"><span className="metric-icon purple">⌇</span> Therapy hours</div><strong>{usedHours} <span>/ {approvedHours}</span></strong><div className="meter"><span style={{ width: `${Math.round((usedHours / approvedHours) * 100)}%` }} /></div><small>Across all active authorizations</small></article>
-          <article className="stat-card"><div className="stat-label"><span className="metric-icon orange">!</span> Needs review</div><strong>{currency(totalAtRisk)}</strong><p className="stat-detail"><span className="trend-dot" /> 2 claims need a follow-up</p><button className="text-button" onClick={() => setActiveView("Claims")}>Review claims <span>→</span></button></article>
-          <article className="stat-card"><div className="stat-label"><span className="metric-icon mint">✓</span> Care docs</div><strong>12 <span>/ 14</span></strong><p className="stat-detail">Two documents still needed</p><button className="text-button" onClick={() => setToast("Document checklist opened in a full version.")}>Finish checklist <span>→</span></button></article>
-        </section>
-
-        <section className="two-column">
-          <article className="panel coverage-panel"><div className="panel-heading"><div><p className="eyebrow">ACTIVE COVERAGE</p><h2>Authorization runway</h2></div><button className="subtle-button" onClick={() => setShowCaseForm(true)}>+ Add</button></div><div className="coverage-list">
-            {authorizations.map((authorization) => {
-              const remaining = authorization.approved - authorization.used;
-              const percent = Math.round((authorization.used / authorization.approved) * 100);
-              return <div className="coverage-row" key={authorization.id}><span className={`service-avatar ${authorization.color}`}>{initials(authorization.service)}</span><div className="coverage-main"><div><strong>{authorization.service}</strong><span>{authorization.child} · {authorization.provider}</span></div><div className="coverage-bar"><span className={authorization.color} style={{ width: `${percent}%` }} /></div></div><div className="coverage-remaining"><strong>{remaining}</strong><span>of {authorization.approved} left</span></div><span className="expiry">Ends {authorization.expires}</span></div>;
-            })}
-          </div><button className="footer-link" onClick={() => setActiveView("Coverage")}>See coverage details <span>→</span></button></article>
-
-          <article className="panel actions-panel"><div className="panel-heading"><div><p className="eyebrow">YOUR NEXT STEPS</p><h2>Keep momentum</h2></div><button className="subtle-button" onClick={() => setToast("Your action list is already up to date.")}>View all</button></div><div className="task-list">
-            {tasks.map((task) => <label className={task.done ? "task done" : "task"} key={task.id}><input type="checkbox" checked={task.done} onChange={() => toggleTask(task.id)} /><span className={`custom-check ${task.tone}`}>✓</span><span className="task-copy"><strong>{task.title}</strong><small>{task.detail}</small></span><span className={`task-due ${task.tone}`}>{task.due}</span></label>)}
-          </div><button className="footer-link" onClick={() => setToast("Great work — your task list is saved on this device.")}>Mark today complete <span>→</span></button></article>
-        </section>
-
-        <section className="panel claim-panel"><div className="panel-heading"><div><p className="eyebrow">RECENT ACTIVITY</p><h2>Claims at a glance</h2></div><button className="subtle-button" onClick={addDemoClaim}>+ Add claim</button></div><div className="claims-table"><div className="claim-head"><span>Provider</span><span>Service date</span><span>Amount</span><span>Status</span><span /></div>{claims.map((claim) => <div className="claim-row" key={claim.id}><span className="provider-cell"><span className="provider-logo">{initials(claim.provider)}</span><span><strong>{claim.provider}</strong><small>{claim.service} · {claim.note}</small></span></span><span>{claim.date}</span><strong>{currency(claim.amount)}</strong><span className={`status ${claim.status.toLowerCase().replace(" ", "-")}`}>{claim.status}</span><button className="row-menu" aria-label={`More actions for ${claim.provider}`}>•••</button></div>)}</div><button className="footer-link" onClick={() => setActiveView("Claims")}>Open claim tracker <span>→</span></button></section>
-      </section>
-
-      {showCaseForm && <div className="modal-backdrop" role="presentation"><section className="modal" role="dialog" aria-modal="true" aria-labelledby="coverage-title"><button className="close" onClick={() => setShowCaseForm(false)} aria-label="Close">×</button><p className="eyebrow">NEW COVERAGE</p><h2 id="coverage-title">Add an authorization</h2><p>Start with the details from the approval letter. You can add documents and claims afterward.</p><form onSubmit={createCase}><label>Child<input name="child" placeholder="e.g. Maya" required /></label><label>Service<select name="service" defaultValue="Occupational therapy"><option>Occupational therapy</option><option>Speech therapy</option><option>Behavior therapy</option><option>Physical therapy</option><option>Feeding therapy</option></select></label><label>Provider<input name="provider" placeholder="e.g. Bright Path OT" required /></label><div className="form-split"><label>Approved hours<input name="approved" type="number" min="1" defaultValue="24" required /></label><label>Ends<input name="expires" placeholder="e.g. Sep 30" required /></label></div><button className="primary-full" type="submit">Add coverage plan <span>→</span></button></form></section></div>}
-
-      {showPricing && <div className="modal-backdrop" role="presentation"><section className="modal pricing-modal" role="dialog" aria-modal="true" aria-labelledby="pricing-title"><button className="close" onClick={() => setShowPricing(false)} aria-label="Close">×</button><p className="eyebrow">SIMPLE, FAMILY-FIRST PRICING</p><h2 id="pricing-title">Choose your support level</h2><p>Try a realistic checkout without entering a card. Your choice stays saved locally.</p><div className="pricing-grid"><article><span className="plan-name">Starter</span><strong>$9 <small>/ month</small></strong><p>For one child and one active coverage plan.</p><ul><li>Authorization runway</li><li>Claims & task tracking</li><li>Local-only storage</li></ul><button onClick={() => startMockCheckout("Starter")}>Mock checkout</button></article><article className="featured-plan"><span className="most-loved">MOST LOVED</span><span className="plan-name">Family</span><strong>$15 <small>/ month</small></strong><p>For multiple children, providers, and ongoing care.</p><ul><li>Everything in Starter</li><li>Unlimited active plans</li><li>Case-ready export pack</li></ul><button onClick={() => startMockCheckout("Family")}>Start mock checkout</button></article></div><small className="privacy-note">No payment is collected in this MVP. A real version should use a trusted payment processor and privacy-safe storage.</small></section></div>}
-
-      {toast && <div className="toast" role="status"><span>✓</span>{toast}<button onClick={() => setToast("")}>×</button></div>}
-    </main>
-  );
+  const screenTitle: Record<View, string> = { Overview: "Good morning, Alex.", Coverage: "Coverage plans", Claims: "Claim tracker", Documents: "Document checklist", Timeline: "Care timeline" };
+  return <main className="app-shell">
+    <aside className="sidebar"><button className="brand" onClick={() => setView("Overview")}><span className="brand-mark">C</span><span>careledger</span></button><div className="family-switcher"><span className="avatar-group"><span className="mini-avatar lavender">M</span><span className="mini-avatar peach">E</span></span><span><strong>Rivera family</strong><small>Device-local workspace</small></span><span className="chevron">⌄</span></div><nav aria-label="Primary navigation">{nav.map((item) => <button key={item} className={view === item ? "nav-item active" : "nav-item"} onClick={() => setView(item)}><span>{item === "Overview" ? "◌" : item === "Coverage" ? "◒" : item === "Claims" ? "▤" : item === "Documents" ? "▱" : "◷"}</span>{item}</button>)}</nav><div className="sidebar-bottom"><button className="mini-upgrade" onClick={() => setModal("pricing")}><span className="sparkle">✦</span><span><strong>{ledger.plan === "Free" ? "Upgrade your plan" : `${ledger.plan} plan`}</strong><small>{ledger.plan === "Free" ? "Mock checkout available" : "Mock subscription active"}</small></span></button><button className="profile" onClick={() => setModal("settings")}><span className="profile-avatar">AR</span><span>Alex Rivera</span><span className="dots">•••</span></button></div></aside>
+    <section className="content"><header className="topbar"><div><p className="eyebrow">{view === "Overview" ? "TUESDAY, JULY 31" : "RIVERA FAMILY WORKSPACE"}</p><h1>{screenTitle[view]}</h1></div><div className="header-actions"><span className={`save-indicator ${saveState.toLowerCase()}`}>{saveState === "Saving" ? "Saving" : saveState === "Loading" ? "Loading" : "Saved on this device"}</span><button className="add-button" onClick={() => setModal(view === "Claims" ? "claim" : view === "Documents" ? "document" : view === "Timeline" ? "task" : "coverage")}><span>+</span> Add {view === "Claims" ? "claim" : view === "Documents" ? "document" : view === "Timeline" ? "follow-up" : "coverage"}</button></div></header>
+      {view === "Overview" && <Overview ledger={ledger} totalAtRisk={totalAtRisk} usedHours={usedHours} approvedHours={approvedHours} openTasks={openTasks} onNavigate={setView} onUsage={adjustUsage} onToggleTask={toggleTask} onAddCoverage={() => openCoverage()} onAddClaim={() => setModal("claim")} onAddTask={() => setModal("task")} />}
+      {view === "Coverage" && <Coverage ledger={ledger} onAdd={() => openCoverage()} onEdit={openCoverage} onRemove={removeCoverage} onUsage={adjustUsage} />}
+      {view === "Claims" && <Claims claims={filteredClaims} filter={claimFilter} onFilter={setClaimFilter} onAdd={() => setModal("claim")} onStatus={updateClaim} onRemove={removeClaim} />}
+      {view === "Documents" && <Documents documents={ledger.documents} onAdd={() => setModal("document")} onToggle={toggleDocument} onRemove={removeDocument} />}
+      {view === "Timeline" && <Timeline ledger={ledger} onToggleTask={toggleTask} onAddTask={() => setModal("task")} />}
+    </section>
+    <input ref={importRef} type="file" accept="application/json" hidden onChange={importLedger} />
+    {modal === "coverage" && <CoverageModal item={editingAuthorization} onClose={() => setModal(null)} onSubmit={saveCoverage} />}
+    {modal === "claim" && <ClaimModal authorizations={ledger.authorizations} onClose={() => setModal(null)} onSubmit={saveClaim} />}
+    {modal === "document" && <DocumentModal onClose={() => setModal(null)} onSubmit={saveDocument} />}
+    {modal === "task" && <TaskModal onClose={() => setModal(null)} onSubmit={saveTask} />}
+    {modal === "pricing" && <PricingModal plan={ledger.plan} onClose={() => setModal(null)} onChoose={startPlan} />}
+    {modal === "settings" && <SettingsModal onClose={() => setModal(null)} onExport={exportLedger} onImport={() => importRef.current?.click()} onReset={resetLedger} />}
+    {notice && <div className="toast" role="status"><span>✓</span>{notice}<button onClick={() => setNotice("")}>×</button></div>}
+  </main>;
 }
+
+function Overview({ ledger, totalAtRisk, usedHours, approvedHours, openTasks, onNavigate, onUsage, onToggleTask, onAddCoverage, onAddClaim, onAddTask }: { ledger: Ledger; totalAtRisk: number; usedHours: number; approvedHours: number; openTasks: Task[]; onNavigate: (view: View) => void; onUsage: (id: number, amount: number) => void; onToggleTask: (id: number) => void; onAddCoverage: () => void; onAddClaim: () => void; onAddTask: () => void }) { return <><section className="hero-card"><div className="hero-copy"><span className="pill"><span className="pulse" /> {openTasks.length} actions need attention</span><h2>Keep care moving.<br /><em>Without chasing paperwork.</em></h2><p>Track approved hours, claims, documents, and the next call to make in one private workspace on this device.</p><button className="outline-button" onClick={() => onNavigate("Timeline")}>View your care timeline <span>→</span></button></div><div className="hero-visual" aria-hidden="true"><div className="orbit orbit-one" /><div className="orbit orbit-two" /><div className="hero-card-stack card-back" /><div className="hero-card-stack card-front"><span className="stack-icon">▣</span><span>Coverage</span><strong>{ledger.authorizations.length} active plans</strong><div className="stack-meter"><span /></div></div></div></section><section className="stats-grid"><article className="stat-card"><div className="stat-label"><span className="metric-icon purple">⌇</span> Therapy hours</div><strong>{usedHours} <span>/ {approvedHours}</span></strong><div className="meter"><span style={{ width: `${approvedHours ? Math.round((usedHours / approvedHours) * 100) : 0}%` }} /></div><small>Across active authorizations</small></article><article className="stat-card"><div className="stat-label"><span className="metric-icon orange">!</span> Needs review</div><strong>{money(totalAtRisk)}</strong><p className="stat-detail"><span className="trend-dot" /> Claims needing a follow-up</p><button className="text-button" onClick={() => onNavigate("Claims")}>Review claims <span>→</span></button></article><article className="stat-card"><div className="stat-label"><span className="metric-icon mint">✓</span> Care docs</div><strong>{ledger.documents.filter((item) => item.ready).length} <span>/ {ledger.documents.length}</span></strong><p className="stat-detail">Marked ready in your checklist</p><button className="text-button" onClick={() => onNavigate("Documents")}>Open documents <span>→</span></button></article></section><section className="two-column"><article className="panel coverage-panel"><div className="panel-heading"><div><p className="eyebrow">ACTIVE COVERAGE</p><h2>Authorization runway</h2></div><button className="subtle-button" onClick={onAddCoverage}>+ Add</button></div><div className="coverage-list">{ledger.authorizations.slice(0, 3).map((item) => <CoverageRow key={item.id} item={item} compact onUsage={onUsage} />)}</div><button className="footer-link" onClick={() => onNavigate("Coverage")}>See coverage details <span>→</span></button></article><article className="panel actions-panel"><div className="panel-heading"><div><p className="eyebrow">YOUR NEXT STEPS</p><h2>Keep momentum</h2></div><button className="subtle-button" onClick={onAddTask}>+ Add</button></div><TaskList tasks={openTasks.slice(0, 3)} onToggle={onToggleTask} /><button className="footer-link" onClick={() => onNavigate("Timeline")}>Open full timeline <span>→</span></button></article></section><section className="panel claim-panel"><div className="panel-heading"><div><p className="eyebrow">RECENT ACTIVITY</p><h2>Claims at a glance</h2></div><button className="subtle-button" onClick={onAddClaim}>+ Add claim</button></div><ClaimTable claims={ledger.claims.slice(0, 4)} /></section></>; }
+function Coverage({ ledger, onAdd, onEdit, onRemove, onUsage }: { ledger: Ledger; onAdd: () => void; onEdit: (item: Authorization) => void; onRemove: (id: number) => void; onUsage: (id: number, amount: number) => void }) { return <section className="panel full-panel"><div className="panel-heading"><div><p className="eyebrow">AUTHORIZATION MANAGEMENT</p><h2>Every approved hour, in one place</h2></div><button className="subtle-button" onClick={onAdd}>+ Add coverage</button></div><div className="coverage-list">{ledger.authorizations.length ? ledger.authorizations.map((item) => <div key={item.id} className="coverage-detail"><CoverageRow item={item} onUsage={onUsage} /><div className="row-actions"><button onClick={() => onEdit(item)}>Edit</button><button className="danger-link" onClick={() => onRemove(item.id)}>Remove</button></div></div>) : <Empty text="No coverage plans yet." action="Add your first plan" onAction={onAdd} />}</div></section>; }
+function CoverageRow({ item, onUsage }: { item: Authorization; compact?: boolean; onUsage: (id: number, amount: number) => void }) { const remaining = item.approved - item.used; const percent = Math.min(100, Math.round((item.used / item.approved) * 100)); return <div className="coverage-row"><span className={`service-avatar ${item.color}`}>{initials(item.service)}</span><div className="coverage-main"><div><strong>{item.service}</strong><span>{item.child} · {item.provider}</span></div><div className="coverage-bar"><span className={item.color} style={{ width: `${percent}%` }} /></div><small>Authorization {item.number || "not recorded"}</small></div><div className="coverage-remaining"><strong>{remaining}</strong><span>of {item.approved} left</span><div className="usage-buttons"><button aria-label={`Remove session from ${item.service}`} onClick={() => onUsage(item.id, -1)}>−</button><button aria-label={`Add session to ${item.service}`} onClick={() => onUsage(item.id, 1)}>+</button></div></div><span className="expiry">Ends {dateLabel(item.ends)}</span></div>; }
+function Claims({ claims, filter, onFilter, onAdd, onStatus, onRemove }: { claims: Claim[]; filter: "All" | ClaimStatus; onFilter: (filter: "All" | ClaimStatus) => void; onAdd: () => void; onStatus: (id: number, status: ClaimStatus) => void; onRemove: (id: number) => void }) { return <section className="panel full-panel"><div className="panel-heading"><div><p className="eyebrow">REIMBURSEMENT FOLLOW-THROUGH</p><h2>Claims with a clear next status</h2></div><button className="subtle-button" onClick={onAdd}>+ Add claim</button></div><div className="filter-row">{(["All", "Pending", "Needs review", "Denied", "Paid"] as const).map((item) => <button className={filter === item ? "filter active" : "filter"} key={item} onClick={() => onFilter(item)}>{item}</button>)}</div>{claims.length ? <ClaimTable claims={claims} onStatus={onStatus} onRemove={onRemove} /> : <Empty text="No claims match this filter." action="Add a claim" onAction={onAdd} />}</section>; }
+function ClaimTable({ claims, onStatus, onRemove }: { claims: Claim[]; onStatus?: (id: number, status: ClaimStatus) => void; onRemove?: (id: number) => void }) { return <div className="claims-table"><div className="claim-head"><span>Provider</span><span>Service date</span><span>Amount</span><span>Status</span><span /></div>{claims.map((claim) => <div className="claim-row" key={claim.id}><span className="provider-cell"><span className="provider-logo">{initials(claim.provider)}</span><span><strong>{claim.provider}</strong><small>{claim.service} · {claim.note || "No note"}</small></span></span><span>{dateLabel(claim.date)}</span><strong>{money(claim.amount)}</strong>{onStatus ? <select aria-label={`Status for ${claim.provider}`} className={`status ${claim.status.toLowerCase().replace(" ", "-")}`} value={claim.status} onChange={(event) => onStatus(claim.id, event.target.value as ClaimStatus)}>{(["Paid", "Pending", "Needs review", "Denied"] as ClaimStatus[]).map((status) => <option key={status}>{status}</option>)}</select> : <span className={`status ${claim.status.toLowerCase().replace(" ", "-")}`}>{claim.status}</span>}{onRemove ? <button className="row-menu" aria-label={`Remove claim from ${claim.provider}`} onClick={() => onRemove(claim.id)}>×</button> : <span />}</div>)}</div>; }
+function Documents({ documents, onAdd, onToggle, onRemove }: { documents: CareDocument[]; onAdd: () => void; onToggle: (id: number) => void; onRemove: (id: number) => void }) { return <section className="panel full-panel"><div className="panel-heading"><div><p className="eyebrow">READY WHEN YOU NEED IT</p><h2>Document checklist</h2></div><button className="subtle-button" onClick={onAdd}>+ Add document</button></div><p className="section-intro">Track where a document lives and whether it is ready to share. Links remain on this device.</p>{documents.length ? <div className="document-list">{documents.map((document) => <article className="document-row" key={document.id}><button className={document.ready ? "doc-check ready" : "doc-check"} aria-label={`Mark ${document.name} ${document.ready ? "not ready" : "ready"}`} onClick={() => onToggle(document.id)}>{document.ready ? "✓" : ""}</button><span className="document-icon">▱</span><div><strong>{document.name}</strong><small>{document.kind} · {document.provider || "No provider"}{document.expires ? ` · Ends ${dateLabel(document.expires)}` : ""}</small></div>{document.link ? <a href={document.link} target="_blank" rel="noreferrer">Open link ↗</a> : <span className="no-link">No link</span>}<button className="row-menu" aria-label={`Remove ${document.name}`} onClick={() => onRemove(document.id)}>×</button></article>)}</div> : <Empty text="No documents in your checklist." action="Add document" onAction={onAdd} />}</section>; }
+function Timeline({ ledger, onToggleTask, onAddTask }: { ledger: Ledger; onToggleTask: (id: number) => void; onAddTask: () => void }) { const events = [...ledger.tasks.map((task) => ({ id: `task-${task.id}`, label: task.due, title: task.title, detail: task.detail, kind: "Follow-up", task })), ...ledger.authorizations.map((item) => ({ id: `auth-${item.id}`, label: dateLabel(item.ends), title: `${item.service} authorization ends`, detail: `${item.child} · ${item.provider} · ${item.approved - item.used} hours remaining`, kind: "Coverage", task: undefined }))]; return <section className="panel full-panel"><div className="panel-heading"><div><p className="eyebrow">WHAT TO DO NEXT</p><h2>Care timeline</h2></div><button className="subtle-button" onClick={onAddTask}>+ Add follow-up</button></div><div className="timeline">{events.map((event) => <article className="timeline-item" key={event.id}><span className="timeline-dot" /><div className="timeline-date">{event.label}</div><div><span className="event-kind">{event.kind}</span><strong>{event.title}</strong><p>{event.detail}</p>{event.task && <label className="inline-task"><input type="checkbox" checked={event.task.done} onChange={() => onToggleTask(event.task!.id)} /> {event.task.done ? "Completed" : "Mark complete"}</label>}</div></article>)}</div></section>; }
+function TaskList({ tasks, onToggle }: { tasks: Task[]; onToggle: (id: number) => void }) { return <div className="task-list">{tasks.length ? tasks.map((task) => <label className={task.done ? "task done" : "task"} key={task.id}><input type="checkbox" checked={task.done} onChange={() => onToggle(task.id)} /><span className={`custom-check ${task.tone}`}>✓</span><span className="task-copy"><strong>{task.title}</strong><small>{task.detail}</small></span><span className={`task-due ${task.tone}`}>{task.due}</span></label>) : <div className="empty-mini">Nothing outstanding — nice work.</div>}</div>; }
+function Empty({ text, action, onAction }: { text: string; action: string; onAction: () => void }) { return <div className="empty"><p>{text}</p><button className="outline-button" onClick={onAction}>{action}</button></div>; }
+function Modal({ children, title, onClose }: { children: React.ReactNode; title: string; onClose: () => void }) { return <div className="modal-backdrop" role="presentation" onMouseDown={onClose}><section className="modal" role="dialog" aria-modal="true" aria-label={title} onMouseDown={(event) => event.stopPropagation()}><button className="close" onClick={onClose} aria-label="Close">×</button>{children}</section></div>; }
+function CoverageModal({ item, onClose, onSubmit }: { item: Authorization | null; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { return <Modal title={item ? "Edit coverage" : "Add coverage"} onClose={onClose}><p className="eyebrow">{item ? "UPDATE COVERAGE" : "NEW COVERAGE"}</p><h2>{item ? "Edit authorization" : "Add an authorization"}</h2><p>Store the approval details and keep the remaining-hour count current.</p><form onSubmit={onSubmit}><label>Child<input name="child" required defaultValue={item?.child} /></label><label>Service<select name="service" defaultValue={item?.service || serviceOptions[0]}>{serviceOptions.map((service) => <option key={service}>{service}</option>)}</select></label><label>Provider<input name="provider" required defaultValue={item?.provider} /></label><div className="form-split"><label>Approved hours<input name="approved" type="number" min="1" required defaultValue={item?.approved || 24} /></label><label>Hours used<input name="used" type="number" min="0" required defaultValue={item?.used || 0} /></label></div><div className="form-split"><label>Ends<input name="ends" type="date" required defaultValue={item?.ends} /></label><label>Authorization #<input name="number" defaultValue={item?.number} /></label></div><label>Attention level<select name="color" defaultValue={item?.color || "neutral"}><option value="neutral">Normal</option><option value="warm">Approaching expiry</option><option value="urgent">Urgent</option></select></label><button className="primary-full" type="submit">{item ? "Save changes" : "Add coverage plan"} <span>→</span></button></form></Modal>; }
+function ClaimModal({ authorizations, onClose, onSubmit }: { authorizations: Authorization[]; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { return <Modal title="Add claim" onClose={onClose}><p className="eyebrow">NEW CLAIM</p><h2>Add a claim</h2><p>Record the service, amount, and what happened next.</p><form onSubmit={onSubmit}><label>Provider<input name="provider" required /></label><label>Service<input name="service" placeholder="e.g. OT · 60 min" required /></label><div className="form-split"><label>Service date<input name="date" type="date" defaultValue={today} required /></label><label>Amount<input name="amount" type="number" step="0.01" min="0" required /></label></div><div className="form-split"><label>Status<select name="status" defaultValue="Pending">{(["Paid", "Pending", "Needs review", "Denied"] as ClaimStatus[]).map((status) => <option key={status}>{status}</option>)}</select></label><label>Coverage plan<select name="authorizationId" defaultValue=""><option value="">Not linked</option>{authorizations.map((item) => <option key={item.id} value={item.id}>{item.child} · {item.service}</option>)}</select></label></div><label>Note<input name="note" placeholder="e.g. Submitted to insurer" /></label><button className="primary-full" type="submit">Add claim <span>→</span></button></form></Modal>; }
+function DocumentModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { return <Modal title="Add document" onClose={onClose}><p className="eyebrow">DOCUMENT CHECKLIST</p><h2>Add a document</h2><p>Use an optional private link to remember where the file lives; CareLedger does not upload files.</p><form onSubmit={onSubmit}><label>Document name<input name="name" required /></label><div className="form-split"><label>Type<select name="kind"><option>Authorization letter</option><option>Plan of care</option><option>Evaluation</option><option>Invoice</option><option>Other</option></select></label><label>Provider<input name="provider" /></label></div><label>Expires (optional)<input name="expires" type="date" /></label><label>Private link (optional)<input name="link" type="url" placeholder="https://…" /></label><label className="check-label"><input name="ready" type="checkbox" /> This document is ready to share</label><button className="primary-full" type="submit">Add document <span>→</span></button></form></Modal>; }
+function TaskModal({ onClose, onSubmit }: { onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) { return <Modal title="Add follow-up" onClose={onClose}><p className="eyebrow">NEXT STEP</p><h2>Add a follow-up</h2><p>Turn a loose end into a clear, checkable next action.</p><form onSubmit={onSubmit}><label>What needs to happen?<input name="title" required /></label><label>Helpful detail<input name="detail" /></label><div className="form-split"><label>Due<input name="due" placeholder="e.g. Aug 6" /></label><label>Priority<select name="tone" defaultValue="neutral"><option value="urgent">Urgent</option><option value="warm">Soon</option><option value="neutral">Normal</option></select></label></div><button className="primary-full" type="submit">Add follow-up <span>→</span></button></form></Modal>; }
+function PricingModal({ plan, onClose, onChoose }: { plan: string; onClose: () => void; onChoose: (plan: string) => void }) { return <Modal title="Choose your plan" onClose={onClose}><p className="eyebrow">SIMPLE, FAMILY-FIRST PRICING</p><h2>Choose your support level</h2><p>This is a mock checkout — no card, payment, or health data leaves this device.</p><div className="pricing-grid"><article><span className="plan-name">Starter</span><strong>$9 <small>/ month</small></strong><p>For one child and one active coverage plan.</p><ul><li>Authorization runway</li><li>Claims & task tracking</li><li>Local-only storage</li></ul><button onClick={() => onChoose("Starter")}>{plan === "Starter" ? "Selected" : "Mock checkout"}</button></article><article className="featured-plan"><span className="most-loved">MOST LOVED</span><span className="plan-name">Family</span><strong>$15 <small>/ month</small></strong><p>For multiple children, providers, and ongoing care.</p><ul><li>Everything in Starter</li><li>Unlimited active plans</li><li>Case-ready export pack</li></ul><button onClick={() => onChoose("Family")}>{plan === "Family" ? "Selected" : "Start mock checkout"}</button></article></div></Modal>; }
+function SettingsModal({ onClose, onExport, onImport, onReset }: { onClose: () => void; onExport: () => void; onImport: () => void; onReset: () => void }) { return <Modal title="Workspace settings" onClose={onClose}><p className="eyebrow">YOUR LOCAL WORKSPACE</p><h2>Keep control of your data</h2><p>CareLedger keeps this workspace in this browser only. Export a private backup before clearing browser data or moving devices.</p><div className="settings-actions"><button className="outline-button" onClick={onExport}>Download backup</button><button className="outline-button" onClick={onImport}>Restore backup</button><button className="danger-button" onClick={onReset}>Restore starter data</button></div></Modal>; }

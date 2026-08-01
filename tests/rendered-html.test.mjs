@@ -24,7 +24,7 @@ test("server-renders the CareLedger family coverage workspace", async () => {
   assert.match(html, /Keep care moving/i);
   assert.match(html, /Authorization runway/i);
   assert.match(html, /Claims at a glance/i);
-  assert.match(html, /CareLedger turns therapy authorizations/i);
+  assert.match(html, /Track approved hours, claims, documents/i);
 });
 
 test("includes the local-first workflows and pricing guardrails", async () => {
@@ -33,9 +33,13 @@ test("includes the local-first workflows and pricing guardrails", async () => {
     readFile(new URL("../README.md", import.meta.url), "utf8"),
   ]);
 
-  assert.match(page, /localStorage/);
+  assert.match(page, /careledger-workspace-v2/);
   assert.match(page, /Add coverage/);
   assert.match(page, /Add claim/);
+  assert.match(page, /Add document/);
+  assert.match(page, /Care timeline/);
+  assert.match(page, /Download backup/);
+  assert.match(page, /Restore backup/);
   assert.match(page, /Mock checkout/);
   assert.match(page, /plan-name">Family/);
   assert.match(readme, /does not upload data/i);
