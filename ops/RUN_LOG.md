@@ -21,6 +21,23 @@ Deploy: <environment, artifact digest, URL/id, acceptance, rollback evidence; or
 Status/next: <backlog/cursor/terminal-marker state>
 ```
 
+## 2026-08-02T01:06:22Z — ummi-hourly-product-builder-20260802T010601Z — L-02b provider-prerequisite audit
+
+Lock: acquired and held through tracked-state reconciliation; automation `ummi-hourly-product-builder`; GPT-5.6 Luna high; `/Users/rohan/repos/therapy-coverage-ledger`
+Prior result: `HEAD` and `origin/main` both verified at `1347acd4285454000ce39c70a09aee70bfc05a92`; the prior reviewed provider-blocker reconciliation was pushed and no staged-tree drift remained
+Selection: reconciled `ops/BACKLOG.md` and `ops/CURSOR.md`; active `L-02` takes precedence and its recorded post-backoff next action is the bounded `L-02b` provider prerequisite audit
+Work: verified Supabase CLI `2.111.0`; checked Docker availability and found the server socket unavailable; exercised `npm run test:rls`, which failed only because local Postgres at `127.0.0.1:54322` refused the connection; updated the blocker evidence in `ops/CURSOR.md` and this run log
+Intended-file allowlist: `ops/CURSOR.md`, `ops/RUN_LOG.md`
+Blocker: `L-02:provider-test:local-db-unavailable`; first seen `2026-08-01T21:35:22Z`, last seen `2026-08-02T01:06:22Z`, attempts `3`, next retry `2026-08-02T02:06:22Z`; exact prerequisite is a local Docker-backed Supabase database or authorized disposable pinned-target-compatible Supabase environment. `L-09` configuration/credential gates remain closed for live writes. No notification repeated because the fingerprint is unchanged.
+Implementer review: inspected the explicit two-file allowlist and whole ops diff; no product, migration, provider, or secret-bearing files changed
+Independent commit review: reviewer `Locke` rejected staged tree `879990eadfc5393b0eb9d34acd547467a233ea33` because validation and scan evidence was not fully recorded; finding fixed below, so that approval is invalid and a fresh review of the new exact staged tree is required
+Validation: `npm run lint` passed; `npm run build` passed; `npm test` passed with 23 tests; `npm run verify:free-only` passed for 37 tracked product sources; `npm run verify:free-only:build` passed for 43 artifact files; `npm run typecheck`, `npm run test:unit`, `npm run test:integration`, and `npm run test:e2e` are unavailable because scripts are missing; `npm run test:rls` was exercised and failed only with local Postgres connection refusal at `127.0.0.1:54322`
+Secret/public scan: exact staged diff and `git diff --cached --check` passed; exact allowlist and pinned public remote passed; refined staged/full-worktree/reachable-history secret-value scans passed with no credential values; the initial broad worktree match was only the documented bare `service_role` policy-name reference; no personal data or provider/configuration change introduced
+Commit intent: `chore: record L-02b provider prerequisite retry` on `main`; capture the exact final staged-tree reference and independent approval externally before commit
+Independent deploy review: none; no deploy or provider write
+Deploy: none
+Status/next: `L-02` remains active, terminal marker remains `not-complete`; release remains blocked by the named L-08 validation scripts and L-02b provider environment; retry the provider prerequisite after `2026-08-02T02:06:22Z` or when new environment evidence appears
+
 ## 2026-08-01T20:56:23Z — policy-recovery — Luna/high reconciliation after L-01
 
 Lock: no hourly lock; automation `ummi-hourly-product-builder` paused before recovery

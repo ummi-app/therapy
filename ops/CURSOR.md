@@ -33,8 +33,8 @@ The Supabase CLI is installed, but `npm run test:rls` cannot connect to local
 Postgres at `127.0.0.1:54322` because the Docker daemon is unavailable. No live
 target write is authorized before `L-09`. Blocker fingerprint
 `L-02:provider-test:local-db-unavailable` was last seen at
-`2026-08-01T23:10:01Z`, attempt 2, with next retry at
-`2026-08-02T00:10:01Z`. No user notification is repeated for this unchanged
+`2026-08-02T01:06:22Z`, attempt 3, with next retry at
+`2026-08-02T02:06:22Z`. No user notification is repeated for this unchanged
 fingerprint. The next safe action is the bounded retry after that time; when a
 disposable pinned-target-compatible Supabase environment is available, run the
 migration and behavioral RLS matrix and reconcile findings before L-03 auth.
