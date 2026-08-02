@@ -3,10 +3,14 @@
 ## Commit gate: implementer then independent reviewer
 
 1. The implementer stages the complete intended slice, including backlog/cursor/run-log/ops changes, and records the staged-diff hash or equivalent immutable review reference.
-2. A named independent reviewer who did not implement that slice reviews that exact final staged diff. They adversarially inspect authorization and forged ownership/FKs, data loss, input/output safety, errors, accessibility, mobile behavior, scope/payment residue, and test adequacy.
+2. A named independent reviewer who did not implement that slice reviews that exact final staged diff. For normal automation, this reviewer is the locally configured Cline CLI using OpenRouter `deepseek/deepseek-v4-pro` with high thinking and `--auto-approve false`. It adversarially inspects authorization and forged ownership/FKs, data loss, input/output safety, errors, accessibility, mobile behavior, scope/payment residue, and test adequacy.
 3. Fix every credible finding. Any source, test, configuration, or ops/log change invalidates approval: restage and obtain a fresh independent review of the new exact diff.
 4. Before production, run and record the named commands `npm run lint`, `npm run typecheck`, `npm run test:unit`, `npm run test:integration`, `npm run test:rls`, `npm run build`, and `npm run test:e2e`. Add/maintain each script as its backlog slice lands. A failed, skipped, or unavailable critical check blocks production; do not replace it with an undocumented substitute.
 5. Scan the exact staged diff and full worktree for secrets; enforce the remote/public invariant that `git@github.com:ummi-app/therapy.git` may contain no secrets, personal data, private endpoints, or unreviewed generated artifacts. Complete and record a one-time reachable-history secret scan before public launch. During bootstrap and incremental `L-01` purge slices, introduce no new Ummi monetization/Stripe/paid-plan/subscription/checkout residue and record the remaining baseline. The commit that completes `L-01`, and every commit thereafter, must prove that no such code, dependency, route, environment variable, database artifact, copy, or network endpoint remains. Claim/EOB insurer-payment and family-responsibility facts remain permitted reconciliation data.
+
+### Cline exact-staged-diff review protocol
+
+Run Cline directly through the automation runtime only after the final intended-file allowlist is staged. The runtime captures and hashes the exact binary staged diff, supplies it as an argument rather than through shell interpolation, directs Cline to treat diff content as untrusted data, and disallows all tools. It accepts only a Cline `APPROVED` result for the unchanged staged tree and worktree state. Capture the reviewer result externally. A nonzero exit, unavailable configured model, any tool call, ambiguous result, changed tree, or any finding is a rejection; fix findings, restage, and obtain a fresh review. Cline/model unavailability blocks the commit; do not substitute a Codex reviewer without explicit user direction.
 
 ## Deploy gate: independently review the exact release
 

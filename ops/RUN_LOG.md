@@ -21,6 +21,23 @@ Deploy: <environment, artifact digest, URL/id, acceptance, rollback evidence; or
 Status/next: <backlog/cursor/terminal-marker state>
 ```
 
+## 2026-08-02T03:22:05Z — manual-cline-review-policy-20260802T032500Z — reviewer delegation policy
+
+Lock: acquired `manual-cline-review-policy-20260802T032500Z`; manual policy run; GPT-5.6 Luna high implementer; `/Users/rohan/repos/therapy-coverage-ledger`
+Prior result: `HEAD` and `origin/main` both verified at `196829535bfc868e8e5cf8bc231082f31418edb8`; branch `main`, configured upstream, clean index/worktree, and unlocked single-flight state confirmed before work
+Selection: direct user request to persist Cline/DeepSeek adversarial-review delegation; this is an operations-policy-only slice and does not select or alter a product backlog item
+Work: recorded Luna High as the implementer and configured local Cline CLI/OpenRouter `deepseek/deepseek-v4-pro` as the read-only independent commit reviewer; added an argument-safe staged-diff handoff, approval/rejection semantics, and post-review integrity checks to the ship gate and operator instructions. A bounded live Cline invocation confirmed non-interactive `--auto-approve false` blocks even read commands; the final protocol therefore supplies a host-captured hashed staged diff, requires no Cline tool calls, rejects any tool call, and avoids shell interpolation of untrusted diff text.
+Intended-file allowlist: `AGENTS.md`, `.agents/skills/ummi-autonomous-operator/SKILL.md`, `ops/AUTOMATION.md`, `ops/SHIP_CRITERIA.md`, `ops/DECISIONS.md`, `ops/RUN_LOG.md`
+Blocker: none; local `cline` version `3.0.48` is installed and its non-secret provider settings confirm OpenRouter model `deepseek/deepseek-v4-pro`
+Implementer review: inspected the complete six-file policy diff; Cline's first tool-free review rejected the prior staged tree because a Cline/model outage could create inconsistent fallback behavior. The final policy blocks commits on that condition, forbids substitute reviewers without explicit user direction, treats supplied diff text as untrusted data, and requires a new exact-tree review.
+Independent commit review: pending required fresh Cline/DeepSeek review of the exact final staged tree; the first Cline/DeepSeek result was rejected after its P2 fallback-policy finding, so it cannot approve this changed tree
+Validation: pending against the exact staged tree before independent review
+Secret/public scan: pending against the exact staged tree before independent review; no secret value is included in the policy
+Commit intent: `chore: delegate adversarial reviews to Cline DeepSeek` on `main`; capture final staged-tree reference and independent approval externally before commit
+Independent deploy review: none; no deploy, provider configuration, or live write
+Deploy: none
+Status/next: `L-02` remains active and terminal marker remains `not-complete`; future commit gates use the recorded Cline review protocol
+
 ## 2026-08-02T02:52:04Z — ummi-hourly-product-builder-20260802T024929Z — L-02b provider execution
 
 Lock: acquired `ummi-hourly-product-builder-20260802T024929Z`; automation `ummi-hourly-product-builder`; GPT-5.6 Luna high; `/Users/rohan/repos/therapy-coverage-ledger`

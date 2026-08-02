@@ -3,6 +3,7 @@
 | Field | Value |
 | --- | --- |
 | Executor | GPT-5.6 Luna, high reasoning |
+| Independent commit reviewer | Cline CLI, OpenRouter `deepseek/deepseek-v4-pro`, high thinking, read-only |
 | Automation project cwd | `/Users/rohan/repos` |
 | Task repository cwd | `/Users/rohan/repos/therapy-coverage-ledger` |
 | Cadence | Hourly at minute `5`, one run at a time |
@@ -16,6 +17,8 @@
 Acquire the lock with `scripts/automation-lock.sh acquire <run-id>` before reading or changing state. The helper fully writes an owner record and then atomically publishes `ops/.hourly.lock`; interruption before publication leaves no lock, and interruption after publication leaves a complete recoverable lock. It never reclaims by age: if a lock exists, exit without work and log nothing. To recover a crashed owner, first verify through the Codex thread/automation tools that the exact owner run is inactive or completed, then run `UMMI_LOCK_OWNER_INACTIVE_CONFIRMED=yes scripts/automation-lock.sh recover <owner-run-id>` and record the evidence in the next run. Acquire a new lock separately. Release only with the matching owner ID after persisting cursor/log state; a late prior owner cannot release its successor's lock. Never overlap runs.
 
 After locking and before selection or edits, require branch `main`, a configured upstream, and a clean index/worktree. Reconcile `HEAD` to its upstream: push an already-reviewed known local commit before any new work, but stop on behind, diverged, unreviewed-ahead, or unexpected dirty state. Fingerprint unexpected changes and leave them untouched. Record an explicit intended-file allowlist before implementation, stage only those exact files (never broad `git add`), and compare status plus the final diff with that allowlist. Any unexpected or overlapping external edit blocks the commit rather than being swept into it.
+
+For each commit gate, Luna High implements and conducts the implementer review. It then invokes Cline CLI directly through the automation runtime using OpenRouter `deepseek/deepseek-v4-pro` with high thinking and `--auto-approve false`. The runtime captures and hashes the final staged diff before supplying it as an argument (never through shell interpolation), rejects any Cline tool call, and verifies the staged tree and worktree status have not drifted after Cline exits. Preserve its reviewer identity, model, exact staged-tree reference, prompt/result summary, and approval or rejection in the external automation result. A Cline/model/result failure is a commit blocker, not permission to substitute a Codex reviewer; record it and require explicit user direction. Follow the full prompt and acceptance protocol in `ops/SHIP_CRITERIA.md`.
 
 At terminal completion, disable/pause `ummi-hourly-product-builder` and set the terminal marker. Every later invocation checks the marker before lock acquisition and is a no-op that reports completion; it does not reopen work.
 
