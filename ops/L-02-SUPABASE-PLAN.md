@@ -1,8 +1,9 @@
 # L-02 data-flow and Supabase persistence plan
 
-Status: foundation slice recorded on 2026-08-01. This document is the
-contract for the first schema migration and its RLS test matrix. It does not
-authorize a live Supabase write; L-09 owns target configuration and promotion.
+Status: foundation slice recorded on 2026-08-01; disposable local provider
+execution verified on 2026-08-02. This document is the contract for the first
+schema migration and its RLS test matrix. It does not authorize a live
+Supabase write; L-09 owns target configuration and promotion.
 
 ## Current data-flow inventory
 
@@ -140,6 +141,17 @@ Required scenario IDs: `anon-deny-all`, `owner-a-crud`,
    with no launch views, application RPCs/functions, triggers, or Storage
    buckets. Extension-owned functions are excluded from the application
    function count.
+
+## Provider execution evidence
+
+On 2026-08-02, the repository was initialized with a non-secret local
+`supabase/config.toml`; stale local Supabase CLI resources were removed by
+their exact project labels, and the disposable stack applied migration
+`20260801210700`. `npm run test:rls` then passed all 160 pgTAP assertions. The
+provider fixture was corrected to switch JWT owner context before each
+non-owner visibility and explicit account-deletion assertion; this preserves
+the test's intended isolation proof without changing the migration policies.
+No pinned Supabase, Cloudflare, DNS, Storage, or live Auth target was modified.
 
 These tests use synthetic UUIDs and names only. No personal health, financial,
 credential, or production data belongs in fixtures or logs.

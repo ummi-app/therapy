@@ -156,16 +156,28 @@ from unnest(array[
   'children', 'authorizations', 'authorization_lines', 'therapy_sessions',
   'claims', 'imported_documents', 'reminders', 'issue_resolutions'
 ]) as table_name;
+set local role none;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000aa01', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select results_eq(format('select count(*)::int from public.%I where owner_id = ''00000000-0000-0000-0000-00000000aa01'' and updated_at = ''2030-01-01''::timestamptz', table_name), $$values (1)$$, 'owner B update did not change ' || table_name)
 from unnest(array[
   'children', 'authorizations', 'authorization_lines', 'therapy_sessions',
   'claims', 'imported_documents', 'reminders', 'issue_resolutions'
 ]) as table_name;
+set local role none;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000bb01', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select lives_ok(format('delete from public.%I where owner_id = ''00000000-0000-0000-0000-00000000aa01''', table_name), 'owner B delete is safely ignored for ' || table_name)
 from unnest(array[
   'children', 'authorizations', 'authorization_lines', 'therapy_sessions',
   'claims', 'imported_documents', 'reminders', 'issue_resolutions'
 ]) as table_name;
+set local role none;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000aa01', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select results_eq(format('select count(*)::int from public.%I where owner_id = ''00000000-0000-0000-0000-00000000aa01''', table_name), $$values (1)$$, 'owner B delete did not remove ' || table_name)
 from unnest(array[
   'children', 'authorizations', 'authorization_lines', 'therapy_sessions',
@@ -202,7 +214,11 @@ from unnest(array[
 -- forged-child-fk-denied:
 select throws_ok($$insert into public.authorizations (owner_id, child_id, starts_on, ends_on)
   values (auth.uid(), '00000000-0000-0000-0000-0000000000b1', '2026-01-01', '2026-12-31')$$, '23503', null, 'foreign child FK denied');
+select throws_ok($$insert into public.authorization_lines (owner_id, authorization_id, billing_code)
+  values (auth.uid(), '00000000-0000-0000-0000-0000000000b2', '97153')$$, '23503', null, 'foreign authorization line FK denied');
 -- forged-line-fk-denied:
+select throws_ok($$insert into public.therapy_sessions (owner_id, authorization_id, line_id, service_date, status)
+  values (auth.uid(), '00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-0000000000b3', '2026-07-04', 'Scheduled')$$, '23503', null, 'foreign line composite FK denied');
 select throws_ok($$insert into public.therapy_sessions (owner_id, authorization_id, line_id, service_date, status)
   values (auth.uid(), '00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-0000000000a3', '2026-07-04', 'Scheduled')$$, '23503', null, 'foreign authorization/line FKs denied');
 -- forged-session-claim-fk-denied:
@@ -228,11 +244,19 @@ from unnest(array[
   'children', 'authorizations', 'authorization_lines', 'therapy_sessions',
   'claims', 'imported_documents', 'reminders', 'issue_resolutions'
 ]) as table_name;
+set local role none;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000bb01', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select results_eq(format('select count(*)::int from public.%I where owner_id = ''00000000-0000-0000-0000-00000000bb01''', table_name), $$values (1)$$, 'account deletion preserved owner B ' || table_name)
 from unnest(array[
   'children', 'authorizations', 'authorization_lines', 'therapy_sessions',
   'claims', 'imported_documents', 'reminders', 'issue_resolutions'
 ]) as table_name;
+set local role none;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000aa01', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select is((select count(*)::int from public.therapy_sessions s left join public.authorization_lines l on l.owner_id = s.owner_id and l.id = s.line_id where s.owner_id = '00000000-0000-0000-0000-00000000aa01' and l.id is null), 0, 'no owner A orphaned sessions remain');
 set local role none;
 delete from auth.users where id = '00000000-0000-0000-0000-00000000aa01';
@@ -248,7 +272,12 @@ delete from public.claims where owner_id = '00000000-0000-0000-0000-00000000aa01
 delete from public.imported_documents where owner_id = '00000000-0000-0000-0000-00000000aa01';
 delete from public.reminders where owner_id = '00000000-0000-0000-0000-00000000aa01';
 delete from public.issue_resolutions where owner_id = '00000000-0000-0000-0000-00000000aa01';
+set local role none;
+set local role authenticated;
+select set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000bb01', true);
+select set_config('request.jwt.claim.role', 'authenticated', true);
 select results_eq('select count(*)::int from public.children where owner_id = ''00000000-0000-0000-0000-00000000bb01''', $$values (1)$$, 'repeat account deletion left owner B intact');
+set local role none;
 
 -- no-extra-object-surface: the migration intentionally creates no public view,
 -- RPC, trigger, function, or storage bucket for the launch slice.

@@ -1,12 +1,12 @@
 # Hourly execution cursor
 
-Current phase: `L-02` active, foundation slice `L-02a` complete, and `L-02b`
-provider execution blocked. `L-01` is done: independently approved staged tree
+Current phase: `L-02` active, foundation slice `L-02a` and provider execution
+slice `L-02b` complete. `L-01` is done: independently approved staged tree
 `c9903e1e0987273d697120a4d16b288400134248` (binary diff SHA-256
 `c27bf322d8fe2a946d3c84e106ac1e233f049e848170b7ce93e1c367882c59fe`) was
 committed and pushed as `a1862dcf80168cc58900c1f07892f3aa103d0cf3`. The next
-deterministic action is one bounded retry of `L-02b` after the recorded backoff,
-only when a local or authorized disposable Supabase database is available.
+deterministic action is the smallest unfinished L-02 persistence-integration
+slice; no live target write is authorized before L-09.
 
 Last reconciled runs: the bootstrap final staged-tree reference
 `a116dca406a632280e51ba01ba65383872c4f50a` and approved diff SHA-256
@@ -28,18 +28,12 @@ reconcile exactly to pushed `main` commit `cc15da3c2738783166dd3bde1e9b6a8486bd1
 
 At the start of each run, reconcile this cursor against `ops/BACKLOG.md` and the repository. The source of truth is the backlog plus run-log evidence; update this file to the selected task/subtask, commit hash when applicable, blocking prerequisite, and next deterministic action before the run ends.
 
-This cycle's selected slice `L-02b` is a bounded provider-prerequisite audit.
-The Supabase CLI is installed, but `npm run test:rls` cannot connect to local
-Postgres at `127.0.0.1:54322` because the Docker daemon is unavailable. No live
-target write is authorized before `L-09`. Blocker fingerprint
-`L-02:provider-test:local-db-unavailable` was last seen at
-`2026-08-02T02:07:03Z`, attempt 4, with next retry at
-`2026-08-02T03:07:03Z`. Retry delay follows the bounded exponential schedule
-`min(15 minutes × 2^(attempt - 1), 60 minutes)`; attempt 4 is at the 60-minute
-cap. No user notification is repeated for this unchanged fingerprint. The next
-safe action is the bounded retry after that time; when a disposable
-pinned-target-compatible Supabase environment is available, run the migration
-and behavioral RLS matrix and reconcile findings before L-03 auth.
+This cycle's selected slice `L-02b` is provider execution against a disposable
+local Supabase stack. The repo-local config is present, stale labeled local
+Supabase resources were removed, the foundation migration applied, and
+`npm run test:rls` passed all 160 tests. The provider prerequisite blocker is
+cleared; no live target write is authorized before `L-09`. The next safe action
+is the smallest unfinished L-02 persistence-integration slice before L-03 auth.
 
 Selection algorithm:
 
